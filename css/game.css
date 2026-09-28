@@ -1,0 +1,236 @@
+/* 汉诺塔 · HANOI — one stylesheet, no frameworks, no fonts or images fetched.
+   Layout: a board (canvas) plus a numbers panel; the LOT index replaces the board row.
+   The canvas sizes itself from its wrapper (see view.js measure()), so CSS only has to keep
+   the wrapper honest about how much width it may use. */
+
+:root {
+  --bg: #0f1116;
+  --bg2: #171a21;
+  --ink: #e8e3d9;
+  --ink-dim: #9aa0ad;
+  --brass: #e0b25f;
+  --teal: #6fbf9c;
+  --clay: #d1755f;
+  --line: #2a2f3a;
+  --chip: #232833;
+  --radius: 10px;
+  --maxw: 1180px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: radial-gradient(120% 90% at 50% -10%, var(--bg2) 0%, var(--bg) 62%);
+  color: var(--ink);
+  font: 15px/1.55 system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+a { color: var(--brass); text-decoration: none; }
+a:hover, a:focus-visible { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+.top {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 18px 20px 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+h1 { margin: 0; font-size: 26px; letter-spacing: 0.06em; }
+h1 .latin { color: var(--ink-dim); font-size: 14px; letter-spacing: 0.32em; margin-left: 8px; }
+.tag { margin: 4px 0 0; color: var(--ink-dim); font-size: 12.5px; max-width: 62ch; }
+.tag sup { font-size: 0.75em; }
+
+.doors { display: flex; gap: 8px; flex-wrap: wrap; }
+.doors a {
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #1b1f28;
+  color: var(--ink);
+  font-size: 13px;
+}
+.doors a:hover { border-color: var(--brass); text-decoration: none; }
+
+main { max-width: var(--maxw); margin: 0 auto; padding: 10px 20px 40px; }
+
+#routeBox {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+/* #/index hides the board with el.routeBox.hidden = true (js/main.js:98), and the display: grid
+   just above is exactly the author rule that beats the UA's [hidden] default — without this line
+   the 22-row index door still renders a live board underneath it. */
+#routeBox[hidden] { display: none; }
+
+.stage {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #12141a;
+  overflow: hidden;
+  min-height: 240px;
+  touch-action: none;
+}
+
+canvas#board { display: block; width: 100%; height: auto; cursor: grab; }
+canvas#board:active { cursor: grabbing; }
+
+.caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  background: linear-gradient(to top, rgba(9, 10, 13, 0.92), rgba(9, 10, 13, 0));
+  pointer-events: none;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #1a1d25 0%, #151821 100%);
+  padding: 14px 16px 16px;
+}
+
+.panelhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.panelhead span:first-child { font-size: 17px; letter-spacing: 0.04em; color: var(--brass); }
+.chip {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+}
+
+.numbers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 14px 0 10px; }
+.numbers > div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #12151c;
+}
+.numbers dt { font-size: 11.5px; color: var(--ink-dim); letter-spacing: 0.06em; }
+.numbers dd { margin: 2px 0 0; font-size: 24px; font-variant-numeric: tabular-nums; }
+.numbers > div:nth-child(2) dd { color: var(--teal); }
+.numbers > div:nth-child(4) dd { color: var(--clay); font-size: 16px; }
+
+.facts { margin: 0 0 10px; display: grid; gap: 4px; }
+.facts > div { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; border-bottom: 1px dashed #232833; padding-bottom: 3px; }
+.facts dt { color: var(--ink-dim); }
+.facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+.proof { font-size: 11.5px; color: var(--ink-dim); margin: 8px 0 12px; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 6px; }
+button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: #212632;
+  border: 1px solid #333a49;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--brass); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+kbd {
+  font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid #3a4252;
+  border-radius: 3px;
+  padding: 1px 3px;
+  color: var(--ink-dim);
+}
+
+.save {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--teal);
+}
+.save .muted { color: var(--ink-dim); }
+.save button { margin-left: auto; font-size: 12px; padding: 5px 8px; }
+
+.cap, .counter { font-size: 11.5px; color: #7f8797; margin: 10px 0 0; }
+
+.index h2 { font-size: 19px; letter-spacing: 0.04em; }
+ul.lots { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+ul.lots li {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #14171e;
+  font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+ul.lots li span { color: var(--ink-dim); }
+
+.curtain {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(7, 8, 11, 0.78);
+  padding: 20px;
+  z-index: 30;
+}
+/* The UA's [hidden] { display: none } is an author-rule-beatable default: `.curtain` sets
+   display: grid above, so el.hidden = true alone left a fixed, inset:0, z-index:30 veil over the
+   whole document — every pointerdown landed on the card instead of the board. */
+.curtain[hidden] { display: none; }
+.card {
+  width: min(430px, 100%);
+  border: 1px solid #3a4252;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #1d212b, #14171e);
+  padding: 20px 22px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.6);
+}
+.card h2 { margin: 0 0 12px; font-size: 21px; color: var(--brass); letter-spacing: 0.05em; }
+.cardrow { display: flex; justify-content: space-between; gap: 12px; font-size: 13.5px; border-bottom: 1px dashed #262c38; padding: 5px 0; }
+.cardrow b { color: var(--ink-dim); font-weight: 500; }
+.cardfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  background: #232a36;
+  border: 1px solid #3d4757;
+  color: var(--ink);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  z-index: 40;
+}
+
+body[data-mode="index"] #routeBox { display: none; }
+
+@media (max-width: 860px) {
+  #routeBox { grid-template-columns: minmax(0, 1fr); }
+  .numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  h1 { font-size: 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  canvas#board { cursor: crosshair; }
+  .toast { transition: none; }
+}

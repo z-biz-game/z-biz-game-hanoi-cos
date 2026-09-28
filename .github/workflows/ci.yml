@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The rule, the search, the generator and the shipped table are plain ES modules: no browser,
+  # no install step. Two rows are the reason this job exists:
+  #   * test/solve.test.mjs — 3^n and 4^n graphs are searched exhaustively, every three-peg
+  #     distance is cross-checked against the O(n) recursion over all 3,279 positions of n ≤ 7,
+  #     the closed form is pinned for n = 1..14 and Frame-Stewart for n = 1..12 (including the
+  #     hand-typed Reve value 49), and removing the size rule must shorten the n = 3 optimum;
+  #   * test/library.test.mjs — re-solves every row in js/data/lots.js with a fresh sweep, so a
+  #     hand-edited par or a stale bake fails the build instead of shipping.
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: for f in js/*.js js/*/*.js server.cjs electron/main.cjs tools/*.mjs test/*.mjs; do node --check "$f"; done
+      - name: Bake is reproducible
+        run: node tools/bake.mjs --check
+      - name: Suites
+        run: for f in test/*.test.mjs; do echo "::group::$f"; node "$f"; echo "::endgroup::"; done
+
+  # The shell only exists once a real page is driven by real mouse events: the canvas hit test,
+  # the "a larger disk onto a smaller one is refused and not counted" rule, the border clamping
+  # and the save file all live behind `window.hanoi`.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Headless playtest
+        env:
+          SKIP_UNIT: 1
+          WD_TIMEOUT: 300
+        run: bash tools/verify.sh

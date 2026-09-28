@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="汉诺塔：22 张 LOT，每关最少步数由穷尽 BFS 量出，并与 2^n−1 / Frame-Stewart 对账。">
+<title>汉诺塔 · HANOI</title>
+<!-- 家族约定：`data:,` 让浏览器根本不发 favicon 请求（不增加资产，也不污染 verify.sh 的 console 干净断言）。 -->
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="css/game.css">
+</head>
+<body data-mode="lot">
+<header class="top">
+  <div class="brand">
+    <h1>汉诺塔 <span class="latin">HANOI</span></h1>
+    <p class="tag">下界是量出来的，不是猜的 · 3 柱闭式 2<sup>n</sup>−1，4 柱 Frame-Stewart，最大图 1,594,323 态穷尽</p>
+  </div>
+  <nav class="doors">
+    <a href="#/lot/lot-3p-4">第一关</a>
+    <a href="#/random/shoal/today">随机</a>
+    <a href="#/daily">每日</a>
+    <a href="#/index">LOT 目录</a>
+  </nav>
+</header>
+
+<main>
+  <section class="board" id="routeBox">
+    <div class="stage" id="stage">
+      <canvas id="board" width="900" height="560" aria-label="汉诺塔棋盘：拖动盘叠到另一根柱上"></canvas>
+      <div class="caption" id="hintline">提示：—</div>
+    </div>
+
+    <aside class="panel">
+      <div class="panelhead">
+        <span id="lotId">—</span>
+        <span class="chip" id="band">—</span>
+      </div>
+      <dl class="numbers">
+        <div><dt>已用步数</dt><dd id="steps">0</dd></div>
+        <div><dt>已证下界</dt><dd id="par">—</dd></div>
+        <div><dt>剩余（最短）</dt><dd id="left">—</dd></div>
+        <div><dt>超支</dt><dd id="over">—</dd></div>
+      </dl>
+      <dl class="facts">
+        <div><dt>塔形</dt><dd id="shape">—</dd></div>
+        <div><dt>状态空间</dt><dd id="space">—</dd></div>
+        <div><dt>最短路线数</dt><dd id="ways">—</dd></div>
+        <div><dt>本机记录</dt><dd id="best">无</dd></div>
+        <div><dt>进度</dt><dd id="unlocked">—</dd></div>
+      </dl>
+      <p class="proof" id="proof">—</p>
+      <div class="controls">
+        <button id="undo" type="button" disabled>撤销 <kbd>U</kbd></button>
+        <button id="hint" type="button">提示 <kbd>H</kbd></button>
+        <button id="restart" type="button">重来 <kbd>R</kbd></button>
+        <button id="demo" type="button">自动演示 <kbd>D</kbd></button>
+        <button id="hintToggle" type="button" aria-pressed="true">提示高亮：开</button>
+      </div>
+      <div class="save">
+        <span id="saveState">存档检查中…</span>
+        <span class="muted">今日 <b id="today">—</b></span>
+        <button id="reset" type="button">清空存档</button>
+      </div>
+      <p class="cap" id="cap">—</p>
+      <p class="counter" id="counter">—</p>
+    </aside>
+  </section>
+
+  <section class="index" id="index" hidden>
+    <h2>LOT 目录 · 22 张已证塔</h2>
+    <ul id="indexList" class="lots"></ul>
+    <p><a href="#/lot/lot-3p-4">回到塔前 →</a></p>
+  </section>
+</main>
+
+<div class="curtain" id="curtain" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="cardTitle">
+    <h2 id="cardTitle">认证解</h2>
+    <div id="cardBody"></div>
+    <div class="cardfoot">
+      <button id="close" type="button">继续看塔</button>
+      <button id="cardNext" type="button">下一张 LOT →</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden role="status"></div>
+<noscript><p style="padding:1rem">这局游戏需要 JavaScript：所有盘面数字都由浏览器内的穷尽搜索与闭式对账产生。</p></noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

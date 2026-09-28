@@ -1,0 +1,40 @@
+{
+  "name": "hanoi",
+  "version": "1.0.0",
+  "description": "汉诺塔 HANOI — 浏览器原生汉诺塔. 22 张 LOT 的最少步数全部由穷尽 BFS 量出，并与 2^n−1 / Frame-Stewart 闭式对账；最大图 1,594,323 态.",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "node server.cjs",
+    "dev": "node server.cjs 5192",
+    "electron": "electron .",
+    "bake": "node tools/bake.mjs",
+    "bake:check": "node tools/bake.mjs --check",
+    "check": "for f in js/*.js js/*/*.js server.cjs electron/main.cjs tools/*.mjs test/*.mjs; do node --check \"$f\" || exit 1; done && echo OK",
+    "unit": "for f in test/*.test.mjs; do node \"$f\" || exit 1; done",
+    "test": "npm run check && npm run bake:check && npm run unit",
+    "verify": "bash tools/verify.sh"
+  },
+  "keywords": [
+    "game",
+    "puzzle",
+    "hanoi",
+    "tower-of-hanoi",
+    "frame-stewart",
+    "bfs",
+    "proof",
+    "zero-dependency",
+    "electron"
+  ],
+  "author": "z-biz-game",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {},
+  "build": {
+    "appId": "com.zbiz.hanoi",
+    "productName": "Hanoi",
+    "mac": { "category": "public.app-category.puzzle-games" },
+    "win": { "target": "nsis" },
+    "linux": { "target": "AppImage" }
+  }
+}
