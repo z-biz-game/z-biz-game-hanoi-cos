@@ -6,7 +6,8 @@
 //   1. exhaustively BFSes the *whole* position graph (pegs^n states, rooted at the finished
 //      tower) and reads the true minimum number of moves off `dist[start]`;
 //   2. compares that number with the arithmetic everyone quotes (2^n - 1 on three pegs,
-//      Frame-Stewart on four) and with the hand-typed anchor vectors below;
+//      Frame-Stewart on four, 3^n - 1 and (3^n - 1)/2 for the 线柱 variant) and with the
+//      hand-typed anchor vectors below;
 //   3. counts the distinct shortest routes on the BFS DAG (`ways`), so "this par is reachable"
 //      is backed by a route, not by hope;
 //   4. re-runs the rule-free BFS (strict = false) for n = 3 to show the size rule is load
@@ -28,10 +29,11 @@ import { fileURLToPath } from 'node:url';
 
 import { goalState, startState } from '../js/core/game.js';
 import {
-  EXHAUST_LIMIT, TABLE_BUDGET, bfsTable, closedForm3, fitsExhaustive, fsPar, frameStewart,
+  EXHAUST_LIMIT, TABLE_BUDGET, bfsTable, closedForm3, closedFormLine, closedFormLineHalf,
+  fitsExhaustive, fsPar, frameStewart,
   fsRoute, replayRoute, stateCount, dist3,
 } from '../js/core/solve.js';
-import { SHAPES, TIERS, canonicalLevel, scramble, shapesIn, canScramble } from '../js/core/make.js';
+import { ALL_SHAPES, BANDS, canonicalLevel, scramble, shapesIn, canScramble } from '../js/core/make.js';
 import { legalMoves, applyMove } from '../js/core/game.js';
 import { rngFrom } from '../js/core/rng.js';
 
@@ -42,6 +44,10 @@ const CHECK_ONLY = process.argv.includes('--check');
 // ---- hand-typed anchors (never read back from the implementation) --------------------------
 const ANCHOR_CLOSED_FORM = [1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383];
 const ANCHOR_FRAME_STEWART = [1, 3, 5, 9, 13, 17, 25, 33, 41, 49, 65, 81];
+// 线柱 (three pegs in a row, neighbouring pegs only): corner→corner 3^n−1, corner→middle
+// (3^n−1)/2, n = 1..13.
+const ANCHOR_LINE_FULL = [2, 8, 26, 80, 242, 728, 2186, 6560, 19682, 59048, 177146, 531440, 1594322];
+const ANCHOR_LINE_HALF = [1, 4, 13, 40, 121, 364, 1093, 3280, 9841, 29524, 88573, 265720, 797161];
 const ANCHOR_STATE_SPACE = 1594323; // 3^13, the largest graph exhausted at boot
 
 const failures = [];
@@ -75,6 +81,12 @@ for (let n = 1; n <= 12; n++) {
   check(fs[n] === ANCHOR_FRAME_STEWART[n - 1], `Frame-Stewart F(${n})`, `${fs[n]}`);
   check(fsPar(n) === ANCHOR_FRAME_STEWART[n - 1], `fsPar(${n})`, `${fsPar(n)}`);
 }
+for (let n = 1; n <= 13; n++) {
+  check(closedFormLine(n) === ANCHOR_LINE_FULL[n - 1], `线柱 closed form 3^${n}-1`, `${closedFormLine(n)}`);
+  check(closedFormLineHalf(n) === ANCHOR_LINE_HALF[n - 1], `线柱 closed form (3^${n}-1)/2`, `${closedFormLineHalf(n)}`);
+  check(closedFormLine(n) === 2 * closedFormLineHalf(n), `线柱 n=${n}: the two targets satisfy T = 2·S`,
+    `${closedFormLine(n)} vs ${2 * closedFormLineHalf(n)}`);
+}
 check(!fitsExhaustive(11, 4), '4^11 is beyond the exhaustive cap', `${stateCount(11, 4)}`);
 
 // The four-peg rows we DO ship must be reachable, not just counted: replay the constructive
@@ -93,8 +105,10 @@ const rows = [];
 const bakeT0 = performance.now();
 let maxStatesSeen = 0;
 console.log('\n  n pegs par routeCount states tier');
-for (const shape of SHAPES) {
+for (const shape of ALL_SHAPES) {
   const { pegs, n, tier } = shape;
+  const rule = shape.rule || 'free';
+  const id = rule === 'line' ? `lot-line-${n}` : `lot-${pegs}p-${n}`;
   const start = startState(n, pegs);
   const goal = goalState(n, pegs);
   const size = stateCount(n, pegs);
@@ -103,16 +117,16 @@ for (const shape of SHAPES) {
     console.log(`  skip ${pegs}p n=${n} (${size} states exceeds cap)`);
     continue;
   }
-  const run = ms(() => bfsTable(n, pegs, { ways: true }));
+  const run = ms(() => bfsTable(n, pegs, { ways: true, rule }));
   const t = run.out;
   const measured = t.dist[start];
   const ways = t.routeCount ? t.routeCount[start] : null;
-  const arithmetic = pegs === 3 ? closedForm3(n) : fsPar(n);
+  const arithmetic = rule === 'line' ? closedFormLine(n) : (pegs === 3 ? closedForm3(n) : fsPar(n));
   maxStatesSeen = Math.max(maxStatesSeen, size);
 
-  check(t.complete, `${pegs}p n=${n}: BFS visited every position`, `${t.reached}/${size}`);
-  check(measured >= 0, `${pegs}p n=${n}: start reachable from the goal`, `${measured}`);
-  check(measured === arithmetic, `${pegs}p n=${n}: exhaustive par equals ${pegs === 3 ? '2^n-1' : 'Frame-Stewart'}`,
+  check(t.complete, `${pegs}p n=${n} ${rule}: BFS visited every position`, `${t.reached}/${size}`);
+  check(measured >= 0, `${pegs}p n=${n} ${rule}: start reachable from the goal`, `${measured}`);
+  check(measured === arithmetic, `${pegs}p n=${n}: exhaustive par equals ${rule === 'line' ? '3^n-1' : (pegs === 3 ? '2^n-1' : 'Frame-Stewart')}`,
     `bfs=${measured} arithmetic=${arithmetic}`);
   check(t.maxDist >= measured, `${pegs}p n=${n}: the graph diameter covers the canonical par`,
     `maxDist=${t.maxDist} par=${measured}`);
@@ -120,48 +134,69 @@ for (const shape of SHAPES) {
     check(t.maxDist === measured, `${pegs}p n=${n}: on three pegs the canonical tower is farthest`,
       `maxDist=${t.maxDist} par=${measured}`);
   }
-  if (pegs === 3) {
+  if (pegs === 3 && rule === 'free') {
     check(dist3(start, n, pegs - 1) === measured, `${pegs}p n=${n}: the O(n) recursion agrees with BFS`,
       `${dist3(start, n, pegs - 1)}`);
+  }
+  if (rule === 'line') {
+    // The variant has no recursion to lean on, so a 线柱 row is only shippable while the browser
+    // itself can re-sweep the graph — that is what LINE_MAX_N = 10 is, and this is what keeps it.
+    check(size <= TABLE_BUDGET, `线柱 n=${n}: ${size} positions is inside the browser sweep budget`,
+      `budget=${TABLE_BUDGET}`);
+    // The published optimum for the *other* target peg, measured on the same graph.
+    const half = closedFormLineHalf(n);
+    const tm = bfsTable(n, pegs, { rule, root: half });
+    check(tm.complete, `线柱 n=${n}: the sweep rooted at the middle tower also covers the graph`, `${tm.reached}/${size}`);
+    check(tm.dist[start] === ANCHOR_LINE_HALF[n - 1], `线柱 n=${n}: corner→middle BFS equals the typed anchor ${(3 ** n - 1) / 2}`,
+      `bfs=${tm.dist[start]} anchor=${ANCHOR_LINE_HALF[n - 1]}`);
+    check(measured !== dist3(start, n, pegs - 1), `线柱 n=${n}: the free recursion is not the variant's answer`,
+      `bfs=${measured} dist3=${dist3(start, n, pegs - 1)}`);
   }
   if (ways !== null) {
     check(Number.isSafeInteger(ways), `${pegs}p n=${n}: route count is an exact integer`, `${ways}`);
     check(ways >= 1, `${pegs}p n=${n}: at least one shortest route exists`);
   }
 
-  const level = canonicalLevel(pegs, n, `lot-${pegs}p-${n}`);
-  check(level.par === measured, `${pegs}p n=${n}: make.js measures the same par as BFS`, `${level.par}`);
-  check(level.metrics.remaining(level.start, 0) === measured, `${pegs}p n=${n}: runtime metrics agree with BFS`);
+  const level = canonicalLevel(pegs, n, id, rule);
+  check(level.par === measured, `${pegs}p n=${n} ${rule}: make.js measures the same par as BFS`, `${level.par}`);
+  check(level.metrics.remaining(level.start, 0) === measured, `${pegs}p n=${n} ${rule}: runtime metrics agree with BFS`);
+  if (rule === 'line') {
+    check(level.metrics.kind === 'table', `线柱 n=${n}: the row's distance comes from a swept table`, level.metrics.kind);
+    check(level.closedForm === null && level.closedFormLine === measured, `线柱 n=${n}: the row prints its own witness column, not 2^n−1`);
+  }
 
   rows.push({
-    id: `lot-${pegs}p-${n}`,
+    id,
     kind: 'canonical',
     tier,
     pegs,
     n,
+    rule,
     start,
     goal,
     par: measured,
     states: size,
-    closedForm: pegs === 3 ? closedForm3(n) : null,
-    frameStewart: pegs === 4 ? fsPar(n) : null,
+    closedForm: pegs === 3 && rule === 'free' ? closedForm3(n) : null,
+    closedFormLine: rule === 'line' ? closedFormLine(n) : null,
+    frameStewart: pegs === 4 && rule === 'free' ? fsPar(n) : null,
     ways,
     maxDist: t.maxDist,
     edges: t.edges,
     solve: { via: 'bfs-exhaustive', states: size, ms: Math.round(run.ms * 100) / 100 },
   });
-  const label = pegs === 3 ? `2^${n}-1` : `F(${n})`;
-  console.log(`  ${String(n).padStart(2)}  ${pegs}   ${String(measured).padStart(5)}  ${String(ways).padStart(6)}  ${String(size).padStart(8)}  ${tier}   ${label}=${arithmetic} bfs=${run.ms.toFixed(1)}ms`);
+  const label = rule === 'line' ? `3^${n}-1` : (pegs === 3 ? `2^${n}-1` : `F(${n})`);
+  console.log(`  ${String(n).padStart(2)}  ${pegs}   ${String(measured).padStart(6)}  ${String(ways).padStart(6)}  ${String(size).padStart(8)}  ${tier}   ${label}=${arithmetic} bfs=${run.ms.toFixed(1)}ms`);
 }
 
 // campaign order: shallowest band first, then by measured par, so the door list is monotone.
-const tierRank = new Map(TIERS.map((t, i) => [t.key, i]));
+const tierRank = new Map(BANDS.map((t, i) => [t.key, i]));
 rows.sort((a, b) => tierRank.get(a.tier) - tierRank.get(b.tier) || a.par - b.par || a.n - b.n || a.pegs - b.pegs);
 rows.forEach((r, i) => { r.order = i + 1; });
 
-check(rows.length === SHAPES.length, 'every shape produced a row', `${rows.length}/${SHAPES.length}`);
+check(rows.length === ALL_SHAPES.length, 'every shape produced a row', `${rows.length}/${ALL_SHAPES.length}`);
 check(rows.every((r) => r.par > 0), 'no row shipped with a zero par');
 check(rows.some((r) => r.states === EXHAUST_LIMIT), 'the 3^13 row really shipped', '');
+check(rows.filter((r) => r.rule === 'line').length === 10, 'the 线柱 band shipped its whole measured family', `${rows.filter((r) => r.rule === 'line').length}`);
 
 // ---- 4. the counter-proof: drop the size rule and the optimum shrinks ----------------------
 // Same graph, same start and goal, only the "no larger disk on a smaller one" test removed. The
@@ -219,7 +254,7 @@ const tierBands = {};
 let genMsMax = 0;
 let genMsSum = 0;
 let genMsN = 0;
-for (const t of TIERS) {
+for (const t of BANDS) {
   const pars = [];
   const pool = shapesIn(t.key).filter(canScramble);
   for (let i = 0; pool.length && i < 24; i++) {
@@ -239,7 +274,7 @@ for (const t of TIERS) {
   tierBands[t.key] = {
     shapes: shapesIn(t.key).map((s) => `${s.pegs}柱${s.n}盘`),
     scrambleShapes: pool.map((s) => `${s.pegs}柱${s.n}盘`),
-    canonicalPar: shapesIn(t.key).map((s) => (s.pegs === 3 ? closedForm3(s.n) : fsPar(s.n))),
+    canonicalPar: shapesIn(t.key).map((s) => (s.rule === 'line' ? closedFormLine(s.n) : (s.pegs === 3 ? closedForm3(s.n) : fsPar(s.n)))),
     samplePars: pars.length ? [Math.min(...pars), Math.max(...pars)] : null,
     sampleMean: pars.length ? Math.round((pars.reduce((a, b) => a + b, 0) / pars.length) * 100) / 100 : null,
   };
@@ -252,7 +287,7 @@ console.log(`  one board takes ${genMeanMs.toFixed(2)} ms on average, worst ${ge
 notes.push(`scramble acceptance ${(acceptance * 100).toFixed(1)}% over ${genStats.tried} walks, ${genStats.relaxed} relaxed`);
 notes.push(`generation mean ${genMeanMs.toFixed(2)} ms, worst ${genMsMax.toFixed(2)} ms per board`);
 
-const tiersMeta = TIERS.map((t) => ({
+const tiersMeta = BANDS.map((t) => ({
   key: t.key,
   label: t.label,
   shapes: tierBands[t.key].shapes,
@@ -267,7 +302,7 @@ const bake = {
   at: new Date().toISOString().slice(0, 19) + 'Z',
   node: process.version,
   rows: rows.length,
-  shapes: SHAPES.length,
+  shapes: ALL_SHAPES.length,
   maxStates: maxStatesSeen,
   capStates: EXHAUST_LIMIT,
   checks,
@@ -298,7 +333,8 @@ if (CHECK_ONLY) {
 
 const banner = `// GENERATED by \`node tools/bake.mjs\` — do not edit by hand.
 // Every \`par\` below is the value an exhaustive BFS over the whole pegs^n position graph
-// reported for that board, cross-checked against 2^n-1 / Frame-Stewart in the same run.
+// reported for that board, cross-checked in the same run against 2^n-1 (三柱), Frame-Stewart
+// (四柱) and 3^n-1 / (3^n-1)/2 (线柱, rows carrying \`"rule": "line"\`).
 // Row order = campaign order (band, then measured par). Baked ${bake.at} on node ${bake.node}.`;
 
 const body = `${banner}

@@ -11,8 +11,8 @@
 // positions, and it happens when that row is actually requested.
 
 import { goalState, startState } from './game.js';
-import { EXHAUST_LIMIT, TABLE_BUDGET, closedForm3, fsPar, metricsFor, stateCount, fitsExhaustive, bfsTable } from './solve.js';
-import { TIERS, canonicalLevel, dailyLevel, makeLevel, shapesIn, tierByKey, canScramble } from './make.js';
+import { EXHAUST_LIMIT, TABLE_BUDGET, bfsTable, closedForm3, closedFormLine, fsPar, fitsExhaustive, metricsFor, stateCount } from './solve.js';
+import { BANDS, TIERS, canonicalLevel, dailyLevel, makeLevel, shapesIn, tierByKey, canScramble } from './make.js';
 import { hashSeed } from './rng.js';
 import LOTS, { BAKE, LOTS_VERSION, TIERS_META } from '../data/lots.js';
 
@@ -53,10 +53,18 @@ export function levelFor(row) {
   const level = {
     ...row,
     goal,
-    metrics: metricsFor(row.n, row.pegs, goal, row.start),
+    metrics: metricsFor(row.n, row.pegs, goal, row.start, row.rule || 'free'),
   };
   attached.set(key, level);
   return level;
+}
+
+// The arithmetic column a row is judged against, which depends on which game the row plays:
+// 2^n−1 for the published three-peg tower, Frame-Stewart on four pegs, 3^n−1 for 线柱. One door,
+// so `verifyAll` below and bake can no more disagree about the witness than about the rule.
+export function arithmeticOf(row) {
+  if (row.rule === 'line') return closedFormLine(row.n);
+  return row.pegs === 3 ? closedForm3(row.n) : fsPar(row.n);
 }
 
 export function byId(id) {
@@ -77,7 +85,7 @@ export function afterId(id) {
 }
 
 export function bands() {
-  return TIERS.map((t) => {
+  return BANDS.map((t) => {
     const meta = TIERS_META.find((m) => m.key === t.key) || {};
     return {
       key: t.key,
@@ -136,11 +144,12 @@ export function verifyAll({ progress = null } = {}) {
     let measured = null;
     let ways = null;
     if (size <= EXHAUST_LIMIT) {
-      const t = bfsTable(row.n, row.pegs, { ways: true, root: row.goal });
+      const t = bfsTable(row.n, row.pegs, { ways: true, root: row.goal, rule: row.rule || 'free' });
       measured = t.dist[startState(row.n, row.pegs)];
       ways = t.routeCount[startState(row.n, row.pegs)];
     }
     const runtime = levelFor(row).metrics.remaining(row.start, 0);
+    const arithmetic = arithmeticOf(row);
     out.push({
       id: row.id,
       printed: row.par,
@@ -148,8 +157,8 @@ export function verifyAll({ progress = null } = {}) {
       runtime,
       waysPrinted: row.ways,
       waysMeasured: ways,
-      arithmetic: row.pegs === 3 ? closedForm3(row.n) : fsPar(row.n),
-      ok: row.par === measured && measured === runtime && row.par === (row.pegs === 3 ? closedForm3(row.n) : fsPar(row.n)),
+      arithmetic,
+      ok: row.par === measured && measured === runtime && row.par === arithmetic,
     });
     if (progress) progress(out.length, LOTS.length, row.id);
   }

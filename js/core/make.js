@@ -30,8 +30,26 @@ export const TIERS = [
   { key: 'master', label: '绝顶' },
 ];
 
+// The 线柱 band is appended, never spliced in: `dailyLevel` maps a date to a band with
+// `hash % TIERS.length`, so putting a fifth band inside TIERS would silently re-band every
+// date that has already been played. The variant therefore lives in BANDS (everything that
+// lists bands) while TIERS stays the rotation the calendar hashes into.
+export const LINE_BAND = { key: 'line', label: '线柱' };
+export const BANDS = [...TIERS, LINE_BAND];
+
+// The deepest 线柱 tower this repo can ship. `metricsFor` answers exactly for a 线柱 board only
+// while the browser can sweep the whole graph itself (3^n ≤ TABLE_BUDGET), because `dist3` — the
+// O(n) recursion that carries three-peg boards up to 13 disks — assumes a disk may hop to ANY
+// peg. 3^10 = 59,049 is inside that budget, 3^11 = 177,147 is not: the ceiling is measured off
+// the sweep budget, not chosen for difficulty.
+export const LINE_MAX_N = 10;
+
+export const LINE_SHAPES = [];
+for (let n = 1; n <= LINE_MAX_N; n++) LINE_SHAPES.push({ pegs: 3, n, tier: LINE_BAND.key, rule: 'line' });
+
 // Tier membership is by tower shape, exactly as the spec lays it out.
-export function tierOf(pegs, n) {
+export function tierOf(pegs, n, rule = 'free') {
+  if (rule === 'line') return pegs === 3 && n <= LINE_MAX_N ? LINE_BAND.key : null;
   if (pegs === 3) {
     if (n <= 4) return 'shoal';
     if (n <= 7) return 'linked';
@@ -56,16 +74,19 @@ for (let pegs = 3; pegs <= 4; pegs++) {
     const tier = tierOf(pegs, n);
     if (!tier) continue;
     if (pegs === 4 && n === 1) continue; // one disk on four pegs is the same toy as on three
-    SHAPES.push({ pegs, n, tier });
+    SHAPES.push({ pegs, n, tier, rule: 'free' });
   }
 }
 
+// Everything bake is asked to produce a row for: the published game's shapes plus the variant's.
+export const ALL_SHAPES = [...SHAPES, ...LINE_SHAPES];
+
 export function shapesIn(tierKey) {
-  return SHAPES.filter((s) => s.tier === tierKey);
+  return ALL_SHAPES.filter((s) => s.tier === tierKey);
 }
 
 export function tierByKey(key) {
-  const hit = TIERS.find((t) => t.key === key);
+  const hit = BANDS.find((t) => t.key === key);
   return hit || TIERS[0];
 }
 
@@ -103,6 +124,11 @@ export function canonicalLevel(pegs, n, id = null, rule = 'free') {
 }
 
 export function canScramble(shape) {
+  // 线柱 boards ship as certified full towers only. The walk-length/par bands in `bandFor` are
+  // measured from random walks on the FREE graph (tools/bake.mjs prints that study); a random walk
+  // on the adjacency graph lands at a different distance, so reusing those constants would publish
+  // a difficulty promise nobody measured. Refusing is the honest option until the study exists.
+  if (shape.rule === 'line') return false;
   // One- and two-disk towers cannot hold a puzzle: the longest route there is 3 moves, so every
   // walk lands outside any sensible band. Such shapes are still shipped as canonical LOT rows.
   if (shape.n < 3) return false;
@@ -213,13 +239,13 @@ export function dailyLevel(dateKey) {
 
 // What bake prints about the space, so the docs quote a run instead of a feeling.
 export function census() {
-  const byTier = TIERS.map((t) => {
+  const byTier = BANDS.map((t) => {
     const shapes = shapesIn(t.key);
     return {
       key: t.key,
       label: t.label,
       shapes: shapes.map((s) => `${s.pegs}柱${s.n}盘`),
-      canonicalPars: shapes.map((s) => canonicalLevel(s.pegs, s.n).par),
+      canonicalPars: shapes.map((s) => canonicalLevel(s.pegs, s.n, null, s.rule).par),
       scrambleable: shapes.filter(canScramble).length,
     };
   });

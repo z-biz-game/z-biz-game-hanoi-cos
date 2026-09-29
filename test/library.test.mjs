@@ -13,7 +13,10 @@ import { EXHAUST_LIMIT, TABLE_BUDGET, bfsTable, closedForm3, fsPar, stateCount }
 
 const PAR_3 = { 1: 1, 2: 3, 3: 7, 4: 15, 5: 31, 6: 63, 7: 127, 8: 255, 9: 511, 10: 1023, 11: 2047, 12: 4095, 13: 8191 };
 const PAR_4 = { 2: 3, 3: 5, 4: 9, 5: 13, 6: 17, 7: 25, 8: 33, 9: 41, 10: 49 };
-const ROW_COUNT = 22;
+// 线柱 rows print 3^n−1, typed by hand here and nowhere read back from solve.js.
+const PAR_LINE = { 1: 2, 2: 8, 3: 26, 4: 80, 5: 242, 6: 728, 7: 2186, 8: 6560, 9: 19682, 10: 59048 };
+const ROW_COUNT = 32;
+const LINE_ROWS = 10;
 const REVE = 49;
 
 section('library: the table is the shape bake reported');
@@ -26,14 +29,17 @@ eq(BAKE.checks > 250, true, `bake ran ${BAKE.checks} build checks before it woul
 ok(BAKE.ms > 0 && BAKE.ms < 60000, `bake finished in ${BAKE.ms} ms`);
 eq(new Set(LOTS.map((r) => r.id)).size, LOTS.length, 'every row has a unique id');
 eq(new Set(LOTS.map((r) => r.order)).size, LOTS.length, 'and a unique campaign position');
-deepEq(LOTS.map((r) => r.order).sort((a, b) => a - b), LOTS.map((_, i) => i + 1), 'campaign positions are 1..22 with no gaps');
+deepEq(LOTS.map((r) => r.order).sort((a, b) => a - b), LOTS.map((_, i) => i + 1), `campaign positions are 1..${ROW_COUNT} with no gaps`);
 
 section('library: every row\'s par is arithmetic + measurement, both recorded');
 for (const r of LOTS) {
-  const expect = r.pegs === 3 ? PAR_3[r.n] : PAR_4[r.n];
-  eq(r.par, expect, `${r.id}: printed par is the hand-typed ${r.pegs === 3 ? '2^n-1' : 'Frame-Stewart'} value ${expect}`);
+  const line = r.rule === 'line';
+  const expect = line ? PAR_LINE[r.n] : (r.pegs === 3 ? PAR_3[r.n] : PAR_4[r.n]);
+  const witness = line ? '3^n-1' : (r.pegs === 3 ? '2^n-1' : 'Frame-Stewart');
+  eq(r.par, expect, `${r.id}: printed par is the hand-typed ${witness} value ${expect}`);
   eq(r.states, stateCount(r.n, r.pegs), `${r.id}: states = pegs^n`);
-  eq(r.closedForm, r.pegs === 3 ? expect : null, `${r.id}: the three-peg closed form is printed where it applies`);
+  eq(r.closedForm, r.pegs === 3 && !line ? expect : null, `${r.id}: the three-peg closed form is printed where it applies`);
+  eq(r.closedFormLine, line ? expect : null, `${r.id}: the 线柱 closed form is printed where it applies`);
   eq(r.frameStewart, r.pegs === 4 ? expect : null, `${r.id}: the FS value is printed where it applies`);
   eq(r.kind, 'canonical', `${r.id}: baked rows are canonical towers`);
   eq(r.start, startState(r.n, r.pegs), `${r.id}: starts as one tower on the first peg`);
@@ -42,15 +48,23 @@ for (const r of LOTS) {
   ok(r.ways >= 1, `${r.id}: at least one shortest route was counted (${r.ways})`);
   eq(Number.isSafeInteger(r.ways), true, `${r.id}: the route count is an exact integer, not a float estimate`);
   ok(rowExhaustive(r), `${r.id}: inside the exhaustive cap, so its par is a measurement`);
+  eq(browserSweepable(r), r.states <= TABLE_BUDGET, `${r.id}: the sweep report agrees with the row's own graph size`);
+  if (line) ok(browserSweepable(r), `${r.id}: a 线柱 row is only shippable while the browser can re-sweep it`);
 }
 {
-  const three = LOTS.filter((r) => r.pegs === 3);
+  const three = LOTS.filter((r) => r.pegs === 3 && r.rule !== 'line');
+  eq(three.length, 13, 'thirteen free three-peg rows');
   eq(three.every((r) => r.ways === 1), true, 'every three-peg row has exactly ONE shortest route — the classic uniqueness result, measured');
+  const line = LOTS.filter((r) => r.rule === 'line');
+  eq(line.length, LINE_ROWS, `the 线柱 band shipped ${LINE_ROWS} rows`);
+  eq(line.every((r) => r.ways === 1), true, 'the adjacency restriction leaves the shortest route unique too, measured on its own graph');
   const four = LOTS.filter((r) => r.pegs === 4);
   eq(four.some((r) => r.ways > 1), true, 'four-peg rows have several, which is why the hint can only be one of them');
   eq(byId('lot-4p-10').par, REVE, 'the ten-disk, four-peg row prints 49');
   eq(byId('lot-4p-10').ways, LOTS.find((r) => r.id === 'lot-4p-10').ways, '…and its route count came from the table');
   eq(byId('lot-3p-13').states, 1594323, 'the deepest row is the 3^13 one');
+  eq(byId('lot-line-8').par, 6560, 'the eight-disk 线柱 tower prints 3^8−1 = 6560');
+  eq(byId('lot-4p-10').rule, 'free', 'a row written before the variant existed reads as the published game');
   eq(browserSweepable(byId('lot-4p-10')), false, '…and the browser will not sweep it on the player\'s clock');
   eq(browserSweepable(byId('lot-4p-8')), true, 'while 4^8 = 65536 is exactly the sweep budget');
 }
@@ -61,15 +75,18 @@ section('library: nothing was published that could not be re-solved');
   // LOT row has to be re-solvable by this browser, and 4^11 = 41,943,040 positions is over the
   // cap. That rule, not a judgement call, is what removed them.
   eq(LOTS.some((r) => r.pegs === 4 && r.n >= 11), false, 'no four-peg row above n = 10');
-  eq(LOTS.some((r) => r.pegs === 3 && r.n >= 14), false, 'no three-peg row above n = 13');
+  eq(LOTS.some((r) => r.pegs === 3 && r.rule !== 'line' && r.n >= 14), false, 'no free three-peg row above n = 13');
+  eq(LOTS.some((r) => r.rule === 'line' && r.n >= 11), false, 'no 线柱 row above n = 10 either');
+  eq(stateCount(11, 3), 177147, '3^11 is the next graph up, and it is over the browser sweep budget');
+  eq(stateCount(10, 3), 59049, '3^10 is the last one under it — that is the variant ceiling, measured');
   eq(stateCount(11, 4) > EXHAUST_LIMIT, true, '4^11 really is beyond the cap that made them leave');
   eq(fsPar(11), 65, '…whose published FS value is still known, and still tested');
   eq(fsPar(12), 81, '…and so is n = 12');
   eq(LOTS.every((r) => r.states <= EXHAUST_LIMIT), true, 'every shipped row is inside the cap');
   const live = LOTS.filter((r) => r.states <= TABLE_BUDGET).length;
-  eq(live, 17, '17 of the 22 rows are small enough for the browser to sweep itself (3^1..10 and 4^2..8)');
+  eq(live, 27, '27 of the 32 rows are small enough for the browser to sweep itself (3^1..10, 4^2..8, 线柱 3^1..10)');
   eq(LOTS.filter((r) => r.pegs === 4 && r.n <= 8).length, 7, 'four-peg rows up to n=8');
-  eq(LOTS.filter((r) => r.pegs === 3 && r.n <= 10).length, 10, 'three-peg rows up to n=10');
+  eq(LOTS.filter((r) => r.pegs === 3 && r.rule !== 'line' && r.n <= 10).length, 10, 'free three-peg rows up to n=10');
 }
 
 section('library: re-solve from disk (this is the spec\'s bake rule, as a runtime assertion)');
@@ -95,8 +112,9 @@ section('library: the doors');
   eq(list.length, ROW_COUNT, 'the campaign offers every row');
   eq(list[0].id, firstRow().id, 'and starts on the shallowest board');
   eq(list[0].par, 1, 'n=1 on three pegs: one move');
-  eq(list[list.length - 1].id, 'lot-3p-13', 'the campaign ends on the 8191-move tower');
-  const ranks = { shoal: 0, linked: 1, twined: 2, master: 3 };
+  eq(list[list.length - 1].id, 'lot-line-10', 'the campaign ends on the 59,048-move 线柱 tower');
+  eq(list[list.length - 1].par, 59048, '…which is 3^10−1, and the last graph a browser can sweep by itself');
+  const ranks = { shoal: 0, linked: 1, twined: 2, master: 3, line: 4 };
   let orderBad = 0;
   for (let i = 1; i < list.length; i++) {
     const a = `${ranks[list[i - 1].tier]}|${String(list[i - 1].par).padStart(6, '0')}`;
@@ -105,7 +123,8 @@ section('library: the doors');
   }
   eq(orderBad, 0, 'campaign order is band, then measured par — never by hand');
   eq(afterId('lot-3p-1').id, list[1].id, 'next after the first row is the second');
-  eq(afterId('lot-3p-13'), null, 'the last row has no successor');
+  eq(afterId('lot-3p-13').id, 'lot-line-1', 'the published game\'s deepest tower hands the campaign to 线柱');
+  eq(afterId('lot-line-10'), null, 'the last row has no successor');
   eq(afterId('nope'), null, 'an unknown id has none either');
   eq(byId('no-such-lot'), null, 'byId says null, it does not invent a board');
   eq(byId('lot-3p-4').par, 15, 'a routed id resolves to the row the router printed');
@@ -116,7 +135,7 @@ section('library: the LOT line the spec asks for');
   const line = describe(LOTS.find((r) => r.id === 'lot-3p-4'));
   eq(line, 'n=4 pegs=3 par=15 routeCount=1 states=81 tier=shoal', 'the printed row is six labelled fields');
   ok(rowList().every((l) => /^n=\d+ pegs=[34] par=\d+ routeCount=\d+ states=\d+ tier=\w+$/.test(l)), 'every row prints in that format');
-  eq(rowList().length, ROW_COUNT, '…22 times over');
+  eq(rowList().length, ROW_COUNT, `…${ROW_COUNT} times over`);
   eq(describe({ id: 'x', n: 1, pegs: 4, par: 1, ways: null, states: 4, tier: 'shoal' }), 'n=1 pegs=4 par=1 routeCount=- states=4 tier=shoal', 'an unmeasured route count prints as a dash, not as zero');
 }
 
@@ -144,12 +163,16 @@ section('library: daily and random boards arrive through the same door as baked 
 section('library: band bookkeeping matches the rows');
 {
   const b = bands();
-  deepEq(b.map((x) => x.key), ['shoal', 'linked', 'twined', 'master'], 'four bands in campaign order');
-  deepEq(b.map((x) => x.label), ['浅滩', '连阶', '缠盘', '绝顶'], 'with the spec\'s names');
-  deepEq(b.map((x) => x.rows), [8, 3, 3, 8], '8 / 3 / 3 / 8 baked rows');
+  deepEq(b.map((x) => x.key), ['shoal', 'linked', 'twined', 'master', 'line'], 'five bands in campaign order');
+  deepEq(b.map((x) => x.label), ['浅滩', '连阶', '缠盘', '绝顶', '线柱'], 'with the spec\'s names plus the variant\'s');
+  deepEq(b.map((x) => x.rows), [8, 3, 3, 8, 10], '8 / 3 / 3 / 8 / 10 baked rows');
   eq(b.reduce((a, x) => a + x.rows, 0), ROW_COUNT, 'and they add up to the table');
-  ok(b.every((x) => x.scrambleable >= 1), 'every band can also generate a board');
-  deepEq(b.map((x) => x.scrambleParRange).filter(Boolean).length, 4, 'every band reports a measured scramble range');
+  ok(b.filter((x) => x.key !== 'line').every((x) => x.scrambleable >= 1), 'every published band can also generate a board');
+  eq(b.find((x) => x.key === 'line').scrambleable, 0, '线柱 ships certified towers only — its walk bands were never measured');
+  deepEq(b.map((x) => x.scrambleParRange).filter(Boolean).length, 4, 'the four generating bands report a measured scramble range');
+  const lineMeta = b.find((x) => x.key === 'line');
+  deepEq(lineMeta.canonicalParRange, [2, 59048], 'and the variant band reports the range BFS measured');
+  eq(lineMeta.shapes.length, LINE_ROWS, 'with one listed shape per shipped 线柱 row');
   const s = stats();
   eq(s.rows, ROW_COUNT, 'stats counts the rows');
   eq(s.maxStates, EXHAUST_LIMIT, 'and the deepest graph');
