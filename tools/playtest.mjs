@@ -6,7 +6,7 @@
 //   node tools/playtest.mjs open  <url>          # close our pages, open a fresh one
 //   node tools/playtest.mjs nav   <url>
 //   node tools/playtest.mjs eval  '<expr>'       # pass `nonav` to skip the reload
-//   node tools/playtest.mjs eval  '@boot'        # | @play | @routes | @save | @reloaded | @pointer
+//   node tools/playtest.mjs eval  '@boot'        # | @play | @routes | @save | @reloaded | @pointer | @line
 //   node tools/playtest.mjs drag  '<json>'       # one real mouse drag: {"from":[x,y],"to":[x,y]}
 //   node tools/playtest.mjs shot  <path.png>
 //   node tools/playtest.mjs logs
@@ -91,15 +91,21 @@ const SCENARIOS = {
   T('window.hanoi exists', !!H);
   T('hook exposes state', H && typeof H.state === 'object');
   T('default door is a baked LOT row', H.state.id === 'lot-3p-4', H.state.id);
-  T('the LOT table has 22 rows', H.rows().length === 22, H.rows().length);
+  T('the LOT table has 32 rows', H.rows().length === 32, H.rows().length);
   T('every row prints in the six-field format', H.rows().every((l) => ROW.test(l)), H.rows()[0]);
   const t = H.table();
+  T('ten of the 32 rows are 线柱', t.filter((r) => r.rule === 'line').length === 10, t.filter((r) => r.rule === 'line').length);
+  T('the other 22 are the published free game', t.filter((r) => r.rule !== 'line').length === 22, t.filter((r) => r.rule !== 'line').length);
   T('every baked par is a positive integer', t.every((r) => Number.isSafeInteger(r.par) && r.par > 0));
   T('no baked row exceeds the exhaustive cap', t.every((r) => r.states <= 1594323));
   T('the deepest row is 3^13 = 8191', t.some((r) => r.n === 13 && r.pegs === 3 && r.par === 8191 && r.states === 1594323));
   T('the ten-disk four-peg row prints 49', t.some((r) => r.n === 10 && r.pegs === 4 && r.par === 49));
   T('three-peg rows each have exactly one shortest route', t.filter((r) => r.pegs === 3).every((r) => r.ways === 1));
+  T('a 线柱 row prints the measured 3^n−1', t.find((r) => r.id === 'lot-line-6').par === 728, t.find((r) => r.id === 'lot-line-6').par);
+  T('the deepest 线柱 row is 3^10−1 = 59048', t.find((r) => r.id === 'lot-line-10').par === 59048, t.find((r) => r.id === 'lot-line-10').par);
+  T('no 线柱 row is past the sweep budget the variant needs', t.filter((r) => r.rule === 'line').every((r) => r.states <= 65536));
   T('closed form n=14 is 16383', H.closed(14) === 16383, H.closed(14));
+  T('线柱 closed form n=10 is 59048', H.lineClosed(10) === 59048, H.lineClosed(10));
   T('Frame-Stewart n=12 is 81', H.fs(12) === 81, H.fs(12));
   const c = H.census();
   T('census cap is 1594323 positions', c.limit === 1594323, c.limit);
@@ -195,9 +201,17 @@ ${POSTLUDE}`,
   T('lot-4p-10: the hint goes quiet rather than guessing', H.route().length === 0, H.route().length);
   T('lot-4p-10: over par still degrades to billed minus par', H.state.over === 0 && H.state.steps === 2, [H.state.over, H.state.steps]);
   await load('#/index');
-  T('the index door renders every row', document.querySelectorAll('#indexList li').length === 22, document.querySelectorAll('#indexList li').length);
+  T('the index door renders every row', document.querySelectorAll('#indexList li').length === 32, document.querySelectorAll('#indexList li').length);
   T('the index announces the largest graph', document.getElementById('indexList').textContent.includes('1,594,323'));
   T('the index prints the Frame-Stewart range', document.getElementById('indexList').textContent.includes('49, 65, 81'));
+  T('the index prints the 线柱 closed form range', document.getElementById('indexList').textContent.includes('2, 8, 26, 80, 242'));
+  // The index used to rebuild an href out of the printed fields, which sent a 线柱 row to
+  // lot-3p-N: the same six numbers on screen, a different graph and a different par behind them.
+  const hrefs = [...document.querySelectorAll('#indexList a')].map((a) => a.getAttribute('href'));
+  T('a 线柱 entry links to its own id, not to the free tower of its shape',
+    hrefs.filter((h) => /^#\\/lot\\/lot-line-\\d+$/.test(h)).length === 10, hrefs.filter((h) => h.includes('line')));
+  T('…and every entry is a real row of the table',
+    hrefs.every((h) => H.table().some((r) => '#/lot/' + r.id === h)), hrefs.length);
   const rb = getComputedStyle(document.getElementById('routeBox')).display;
   const ix = getComputedStyle(document.getElementById('index')).display;
   T('the index door hides the board and shows the list', H.state.mode === 'index' && !H.state.id
@@ -213,6 +227,17 @@ ${POSTLUDE}`,
   const b = H.state;
   T('a shared random token is the same board', a.id === b.id && a.par === b.par, [a.id, a.par]);
   T('a random board is a scramble', H.level().kind === 'scramble', H.level().kind);
+  // The variant has no scrambles to serve, so its random door picks one of the certified baked
+  // towers. It must not throw, and it must not quietly re-band the request onto the free game.
+  await load('#/random/line/playtest');
+  const l1 = H.state;
+  await load('#/lot/lot-3p-2');
+  await load('#/random/line/playtest');
+  const l2 = H.state;
+  T('a 线柱 token is served a 线柱 board', l1.rule === 'line' && l1.tier === 'line', [l1.rule, l1.tier]);
+  T('…the same token is the same board a second time', l1.id === l2.id && l1.par === l2.par, [l1.id, l2.id]);
+  T('…a certified full tower, and exact at click time', l1.kind === 'canonical' && l1.exact === true, [l1.kind, l1.exact]);
+  T('…with the variant named on the band chip', document.getElementById('band').textContent.includes('线柱'), document.getElementById('band').textContent);
   await load('#/daily');
   T('the daily door resolves', /^daily-\\d{4}-\\d{2}-\\d{2}$/.test(H.state.id), H.state.id);
   T('the daily par is a measured distance', H.state.par > 0 && H.state.left === H.state.par);
@@ -300,6 +325,16 @@ async function pointerScenario(cdp, sessionId, runJS, waitShell) {
     return [r.x + g.centers[${peg}], r.y + g.floor - g.diskH];
   })()`);
   const grabPoint = async (disk) => runJS(`window.hanoi.diskPoint(${disk})`).then((p) => [p.x, p.y]);
+  // Ask the view whether anything is still in motion, instead of guessing how long to sleep. The
+  // travel easing is 190 ms of *legitimate* frames (js/view.js `settle`/`isMoving`), so a frame
+  // sampled inside that tail changes for a real reason — and under load the CDP round trips alone
+  // straddle it. Rows that compare two fingerprints come through here first.
+  const quiet = async (ms = 3000) => runJS(`(async () => {
+    const v = window.hanoi.view, t0 = Date.now();
+    const moving = () => v.travel.size > 0 || !!v.drag || !!v.shake || performance.now() < v.flashUntil;
+    while (moving() && Date.now() - t0 < ${ms}) await new Promise((r) => setTimeout(r, 20));
+    return { moving: moving(), waited: Date.now() - t0 };
+  })()`);
 
   await runJS(`window.hanoi.load('#/lot/lot-3p-4')`);
   await waitShell(120);
@@ -388,7 +423,21 @@ async function pointerScenario(cdp, sessionId, runJS, waitShell) {
   // The drawing has to follow the maths, and `frames` alone cannot prove it: what froze was the
   // picture, not the counter. pixels() hashes the whole surface, and the row below is the control
   // that makes the row inside the loop mean something — two reads with no interaction in between
-  // hash identically, so a changed hash is a real repaint and not sampling noise.
+  // hash identically, so a changed hash is a real repaint and not sampling noise. That control is
+  // only valid at rest, so the preceding row establishes rest from the view's own motion state:
+  // the two border probes above billed real moves, and a disk in flight repaints for 190 ms.
+  // A restart (or an undo) changes the truth underneath an in-flight animation, so the picture has
+  // to snap with it — that is `js/view.js:snap`, and this is the row that keeps it. The move is
+  // billed through the hook rather than the mouse on purpose: `commit()` arms `travel` with
+  // t0 = now, so the row catches the animation while it is certainly still running.
+  await runJS('window.hanoi.restart()');
+  await runJS('window.hanoi.move(0, 1)');
+  const armed = await runJS('window.hanoi.view.travel.size');
+  await runJS('window.hanoi.restart()');
+  const snapped = await runJS('window.hanoi.view.travel.size');
+  T('a restart snaps an in-flight move instead of replaying it', armed === 1 && snapped === 0, [armed, snapped]);
+  const rest = await quiet();
+  T('nothing is in motion when the fingerprint control samples', rest.moving === false, rest);
   const stillA = await runJS('window.hanoi.pixels()');
   const stillB = await runJS('window.hanoi.pixels()');
   T('the frame fingerprint is stable while nothing happens', stillA === stillB, [stillA, stillB]);
@@ -457,6 +506,137 @@ async function pointerScenario(cdp, sessionId, runJS, waitShell) {
   await runJS('new Promise((r) => setTimeout(r, 900))');
   const restB = (await st()).frames;
   T('the repaint pump goes quiet at rest', restB === restA, [restA, restB]);
+  return { rows, fail: rows.filter((r) => !r.pass).length };
+}
+
+// ---- @line: the 线柱 variant under a real finger --------------------------------------------
+// The variant is one extra clause in `canMove`, which js/core/game.js and test/line.test.mjs prove
+// over the whole 3^n graph. What only a browser can prove is the other half of the promise: that
+// the shell routes `#/lot/lot-line-N` to the adjacency graph rather than to the free tower of the
+// same shape, that the rail is painted so a refusal has a reason on screen, and that a finger
+// dragging the smallest disk from the first peg to the last one is refused by the page — not just
+// by a function nobody called.
+async function lineScenario(cdp, sessionId, runJS, waitShell) {
+  const rows = [];
+  const T = (test, pass, detail) => {
+    rows.push({ test, pass: !!pass, detail: detail === undefined ? null : JSON.stringify(detail) });
+    console.log(`  ${pass ? 'ok  ' : 'FAIL'}  ${test}${detail !== undefined ? `  ${JSON.stringify(detail)}` : ''}`);
+  };
+  const st = async () => runJS('window.hanoi.state');
+  const dropPoint = async (peg) => runJS(`(() => {
+    const H = window.hanoi, g = H.geom(), r = H.canvasRect();
+    return [r.x + g.centers[${peg}], r.y + g.floor - g.diskH];
+  })()`);
+  const grabPoint = async (disk) => runJS(`window.hanoi.diskPoint(${disk})`).then((p) => [p.x, p.y]);
+  // A vertical slice of the rail the view draws between neighbouring pegs, read straight off the
+  // canvas: `geom()` hands back the same local CSS pixels the drawing used, so this samples the
+  // line the player sees instead of hashing the whole picture and hoping. The threshold is the
+  // rail's own colour arithmetic — rgba(150,163,182,.42) over the #2a2f3a base beam composites to
+  // about (87,96,110), while the beam itself stays under (60,66,80) — so what this counts is the
+  // link, not the board it is drawn on.
+  const railInk = () => runJS(`(() => {
+    const H = window.hanoi, c = document.getElementById('board'), g = H.geom();
+    const ctx = c.getContext('2d');
+    const dpr = c.width / g.w;
+    const y = Math.round((g.floor + Math.max(5, g.h * 0.015)) * dpr);
+    const mid = Math.round(((g.centers[0] + g.centers[1]) / 2) * dpr);
+    const d = ctx.getImageData(mid - 4, y - 4, 9, 9).data;
+    let ink = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i + 1] > 72 && d[i + 2] > 88) ink++;
+    return ink;
+  })()`);
+
+  await runJS(`window.hanoi.load('#/lot/lot-line-4')`);
+  await waitShell(120);
+  let s = await st();
+  T('the 线柱 chart opens on the adjacency graph', s.rule === 'line' && s.par === 80 && s.n === 4, [s.rule, s.par, s.n]);
+  T('…and not on the free tower that shares its shape', s.par !== 15 && s.left === 80, [s.par, s.left]);
+  const panel = await runJS('[document.getElementById("shape").textContent, document.getElementById("band").textContent, document.getElementById("ways").textContent]');
+  T('the panel says 仅相邻 and names the 线柱 band', panel[0].includes('仅相邻') && panel[1].includes('线柱'), panel);
+  T('…while the route count stays the measured one', panel[2].includes('1 条'), panel[2]);
+  const inkLine = await railInk();
+  await runJS(`window.hanoi.load('#/lot/lot-3p-4')`);
+  await waitShell(120);
+  const inkFree = await railInk();
+  T('the rail is painted between neighbouring pegs', inkLine > 8, inkLine);
+  T('…and the published game draws no such link', inkFree === 0, inkFree);
+
+  await runJS(`window.hanoi.load('#/lot/lot-line-4')`);
+  await waitShell(120);
+
+  // THE ADJACENCY UNDER A FINGER: the smallest disk, legal to lift, dropped two pegs away.
+  const before = await st();
+  const far = await runJS(`(() => {
+    const H = window.hanoi, g = H.geom(), r = H.canvasRect();
+    const p = H.diskPoint(0);
+    return { grab: [p.x, p.y], drop: [r.x + g.centers[2], r.y + g.floor - g.diskH] };
+  })()`);
+  await dragAt(cdp, sessionId, runJS, far.grab, far.drop, 5, 25);
+  s = await st();
+  T('a corner-to-corner drag is refused', s.steps === before.steps && s.state === before.state, [s.steps, s.state]);
+  T('…it is counted as a refusal, not as a move', s.refused === before.refused + 1, [s.refused, before.refused]);
+  const reason = await runJS('window.hanoi.toastText()');
+  T('…and the page says which half of the rule said no', reason.includes('相邻'), reason);
+
+  // The same disk, one peg over: accepted and billed.
+  const near = await runJS(`(() => {
+    const H = window.hanoi, g = H.geom(), r = H.canvasRect();
+    const p = H.diskPoint(0);
+    return { grab: [p.x, p.y], drop: [r.x + g.centers[1], r.y + g.floor - g.diskH] };
+  })()`);
+  const preHop = await st();
+  await dragAt(cdp, sessionId, runJS, near.grab, near.drop, 4, 25);
+  s = await st();
+  T('the neighbouring peg takes the same drag', s.steps === preHop.steps + 1 && s.digits[0] === 1, [s.steps, s.digits[0]]);
+  T('…and the distance fell by exactly one', s.left === preHop.left - 1, [s.left, preHop.left]);
+  await runJS('window.hanoi.restart()');
+  await waitShell(60);
+
+  // The rule the page reports is the rule the page plays by.
+  const legal = await runJS('window.hanoi.legal()');
+  T('every move the page calls legal steps one peg', legal.every((m) => Math.abs(m.to - m.from) === 1), legal);
+  T('…and on the first tower that is exactly one move', legal.length === 1, legal.length);
+
+  // The whole certified solution, one real drag per move, on a 26-move 线柱 tower.
+  await runJS(`window.hanoi.load('#/lot/lot-line-3')`);
+  await waitShell(120);
+  const preRun = await st();
+  T('the 26-move tower opens with the measured par', preRun.par === 26 && preRun.steps === 0, [preRun.par, preRun.steps]);
+  let billed = 0;
+  let wrong = 0;
+  let refusedByUs = 0;
+  let guard = 0;
+  while (!(await st()).done && guard++ < 40) {
+    const plan = await runJS(`(() => {
+      const H = window.hanoi, g = H.geom(), r = H.canvasRect();
+      const mv = H.route()[0];
+      if (!mv) return null;
+      const p = H.diskPoint(mv.disk);
+      return { grab: [p.x, p.y], drop: [r.x + g.centers[mv.to], r.y + g.floor - g.diskH], disk: mv.disk, to: mv.to, from: mv.from };
+    })()`);
+    if (!plan) { wrong++; break; }
+    if (Math.abs(plan.to - plan.from) !== 1) wrong++;
+    const b = await st();
+    const r0 = b.refused;
+    await dragAt(cdp, sessionId, runJS, plan.grab, plan.drop, 3, 20);
+    const a = await st();
+    if (a.steps !== b.steps + 1) wrong++;
+    if (a.digits[plan.disk] !== plan.to) wrong++;
+    if (a.refused !== r0) refusedByUs++;
+    billed++;
+  }
+  s = await st();
+  T('every certified 线柱 drag billed exactly one move', wrong === 0 && billed === 26, [billed, wrong]);
+  T('…and none of them was refused', refusedByUs === 0, refusedByUs);
+  T('the tower is finished under the mouse', s.done === true && s.steps === s.par, [s.done, s.steps, s.par]);
+  T('…and certified against the exhaustively measured bound', s.grade === 'certified' && s.cardTitle === '认证解', [s.grade, s.cardTitle]);
+  T('the record book took the 线柱 id', s.best === 26, s.best);
+  const space = await runJS('document.getElementById("space").textContent');
+  T('the panel still prints the state space it was swept over', space.includes('3^3 = 27'), space);
+  await runJS('new Promise((r) => setTimeout(r, 700))');
+  const restA = (await st()).frames;
+  await runJS('new Promise((r) => setTimeout(r, 900))');
+  T('the repaint pump goes quiet at rest', (await st()).frames === restA, [restA, (await st()).frames]);
   return { rows, fail: rows.filter((r) => !r.pass).length };
 }
 
@@ -568,6 +748,12 @@ async function main() {
     if (arg === '@pointer') {
       if (!(await boot())) { console.log('RESULT {"rows":[],"fail":1,"console":0,"note":"shell never appeared"}'); process.exit(1); }
       emitResult({ ...(await pointerScenario(cdp, sessionId, runJS, waitShell)), console: logs.length });
+      ws.close();
+      return;
+    }
+    if (arg === '@line') {
+      if (!(await boot())) { console.log('RESULT {"rows":[],"fail":1,"console":0,"note":"shell never appeared"}'); process.exit(1); }
+      emitResult({ ...(await lineScenario(cdp, sessionId, runJS, waitShell)), console: logs.length });
       ws.close();
       return;
     }

@@ -2,25 +2,29 @@
 // Every `par` below is the value an exhaustive BFS over the whole pegs^n position graph
 // reported for that board, cross-checked in the same run against 2^n-1 (三柱), Frame-Stewart
 // (四柱) and 3^n-1 / (3^n-1)/2 (线柱, rows carrying `"rule": "line"`).
-// Row order = campaign order (band, then measured par). Baked 2026-09-29T01:28:59Z on node v26.8.1.
+// Row order = campaign order (band, then measured par). Baked 2026-09-29T01:52:56Z on node v26.8.1.
+// LOTS_VERSION stays 1: the 线柱 rows were appended, not renumbered, and each carries its own
+// `"rule"`, so nothing a reader of the previous table relied on changed meaning.
 
+// Stays 1 with the 线柱 rows appended: each new row carries its own `rule`, the ids and order of
+// the free rows did not move, and a reader that ignores both fields still plays the published game.
 export const LOTS_VERSION = 1;
 
 export const BAKE = {
   "generatedBy": "tools/bake.mjs",
-  "at": "2026-09-29T01:28:59Z",
+  "at": "2026-09-29T01:52:56Z",
   "node": "v26.8.1",
   "rows": 32,
   "shapes": 32,
   "maxStates": 1594323,
   "capStates": 1594323,
   "checks": 481,
-  "ms": 634.1,
+  "ms": 634.02,
   "acceptance": 0.505,
   "meanScramblePar": 14.42,
   "relaxedWalks": 0,
-  "genMeanMs": 2.092,
-  "genMaxMs": 38.688,
+  "genMeanMs": 2.085,
+  "genMaxMs": 38.784,
   "boardsSampled": 96,
   "walkStudy": [
     {
@@ -63,7 +67,7 @@ export const BAKE = {
   "notes": [
     "counter-proof n=3: strict 7 vs rule-free 3",
     "scramble acceptance 50.5% over 190 walks, 0 relaxed",
-    "generation mean 2.09 ms, worst 38.69 ms per board"
+    "generation mean 2.09 ms, worst 38.78 ms per board"
   ]
 };
 
@@ -221,7 +225,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 3,
-      "ms": 0.11
+      "ms": 0.1
     },
     "order": 1
   },
@@ -245,7 +249,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 9,
-      "ms": 0.02
+      "ms": 0.03
     },
     "order": 2
   },
@@ -317,7 +321,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 27,
-      "ms": 0.01
+      "ms": 0.02
     },
     "order": 5
   },
@@ -389,7 +393,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 81,
-      "ms": 0.05
+      "ms": 0.04
     },
     "order": 8
   },
@@ -413,7 +417,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 243,
-      "ms": 0.12
+      "ms": 0.11
     },
     "order": 9
   },
@@ -437,7 +441,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 729,
-      "ms": 0.5
+      "ms": 0.46
     },
     "order": 10
   },
@@ -461,7 +465,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 2187,
-      "ms": 0.24
+      "ms": 0.2
     },
     "order": 11
   },
@@ -509,7 +513,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 19683,
-      "ms": 1.67
+      "ms": 1.59
     },
     "order": 13
   },
@@ -533,7 +537,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 59049,
-      "ms": 3.6
+      "ms": 3.78
     },
     "order": 14
   },
@@ -557,7 +561,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 4096,
-      "ms": 7.77
+      "ms": 6.06
     },
     "order": 15
   },
@@ -581,7 +585,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 16384,
-      "ms": 2.16
+      "ms": 2.2
     },
     "order": 16
   },
@@ -605,7 +609,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 65536,
-      "ms": 6.11
+      "ms": 8.69
     },
     "order": 17
   },
@@ -629,7 +633,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 262144,
-      "ms": 30.37
+      "ms": 29.73
     },
     "order": 18
   },
@@ -653,7 +657,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 1048576,
-      "ms": 111.11
+      "ms": 110.31
     },
     "order": 19
   },
@@ -677,7 +681,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 177147,
-      "ms": 11.22
+      "ms": 11.13
     },
     "order": 20
   },
@@ -701,7 +705,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 531441,
-      "ms": 32.65
+      "ms": 33.67
     },
     "order": 21
   },
@@ -725,7 +729,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 1594323,
-      "ms": 99.96
+      "ms": 99.85
     },
     "order": 22
   },
@@ -797,7 +801,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 27,
-      "ms": 0.23
+      "ms": 0.22
     },
     "order": 25
   },
@@ -821,7 +825,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 81,
-      "ms": 0.68
+      "ms": 0.66
     },
     "order": 26
   },
@@ -893,7 +897,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 2187,
-      "ms": 0.2
+      "ms": 0.19
     },
     "order": 29
   },
@@ -917,7 +921,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 6561,
-      "ms": 0.59
+      "ms": 0.57
     },
     "order": 30
   },
@@ -941,7 +945,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 19683,
-      "ms": 1.57
+      "ms": 1.62
     },
     "order": 31
   },
@@ -965,7 +969,7 @@ export const LOTS = [
     "solve": {
       "via": "bfs-exhaustive",
       "states": 59049,
-      "ms": 3.33
+      "ms": 3.43
     },
     "order": 32
   }

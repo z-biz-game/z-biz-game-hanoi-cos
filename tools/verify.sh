@@ -14,7 +14,7 @@
 # rasterisation saturates the cores and, with no CDP client attached, the process will not exit
 # on its own. This board is plain 2D canvas, so stock headless Chrome is enough.
 #
-#   ./tools/verify.sh                                # node suites + @boot @play @routes @save @reloaded @pointer
+#   ./tools/verify.sh                                # suites + @boot @play @routes @save @reloaded @pointer @line
 #   SCENARIOS="pointer" ./tools/verify.sh            # just the finger suite while editing the view
 #   SKIP_UNIT=1 ./tools/verify.sh                    # browser only (what the CI browser job does)
 #   BAKE_FIRST=1 ./tools/verify.sh                   # re-measure the table, then verify it
@@ -103,7 +103,7 @@ fi
 export CDP_PORT
 export BASE_URL=$BASE
 node tools/playtest.mjs open "$BASE" | head -3
-# js/data/lots.js has 22 measured rows and the shell resolves a route before it reports a state,
+# js/data/lots.js has 32 measured rows and the shell resolves a route before it reports a state,
 # so wait on window.hanoi rather than on a timer.
 BOOT=""
 for i in $(seq 1 60); do
@@ -119,7 +119,7 @@ esac
 # @reloaded has to run after @save (it reads what @save left on disk through a real page reload),
 # and every scenario shares this one browser process, which is what makes the persistence check
 # mean something.
-for s in ${SCENARIOS:-boot play routes save reloaded pointer}; do
+for s in ${SCENARIOS:-boot play routes save reloaded pointer line}; do
   echo "=== @$s ==="
   if [ "$s" = "reloaded" ]; then
     OUT=$(node tools/playtest.mjs eval "@$s" 2>&1)

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<meta name="description" content="汉诺塔：22 张 LOT，每关最少步数由穷尽 BFS 量出，并与 2^n−1 / Frame-Stewart 对账。">
+<meta name="description" content="汉诺塔：32 张 LOT，每关最少步数由穷尽 BFS 量出，并与 2^n−1 / Frame-Stewart / 线柱 3^n−1 对账。">
 <title>汉诺塔 · HANOI</title>
 <!-- 家族约定：`data:,` 让浏览器根本不发 favicon 请求（不增加资产，也不污染 verify.sh 的 console 干净断言）。 -->
 <link rel="icon" href="data:,">
@@ -14,10 +14,11 @@
 <header class="top">
   <div class="brand">
     <h1>汉诺塔 <span class="latin">HANOI</span></h1>
-    <p class="tag">下界是量出来的，不是猜的 · 3 柱闭式 2<sup>n</sup>−1，4 柱 Frame-Stewart，最大图 1,594,323 态穷尽</p>
+    <p class="tag">下界是量出来的，不是猜的 · 3 柱闭式 2<sup>n</sup>−1，4 柱 Frame-Stewart，线柱 3<sup>n</sup>−1，最大图 1,594,323 态穷尽</p>
   </div>
   <nav class="doors">
     <a href="#/lot/lot-3p-4">第一关</a>
+    <a href="#/lot/lot-line-4">线柱</a>
     <a href="#/random/shoal/today">随机</a>
     <a href="#/daily">每日</a>
     <a href="#/index">LOT 目录</a>
@@ -27,7 +28,7 @@
 <main>
   <section class="board" id="routeBox">
     <div class="stage" id="stage">
-      <canvas id="board" width="900" height="560" aria-label="汉诺塔棋盘：拖动盘叠到另一根柱上"></canvas>
+      <canvas id="board" width="900" height="560" aria-label="汉诺塔棋盘：拖动盘叠到另一根柱上；线柱带只画相邻柱之间的轨道"></canvas>
       <div class="caption" id="hintline">提示：—</div>
     </div>
 
@@ -68,7 +69,7 @@
   </section>
 
   <section class="index" id="index" hidden>
-    <h2>LOT 目录 · 22 张已证塔</h2>
+    <h2>LOT 目录 · 已证塔表</h2>
     <ul id="indexList" class="lots"></ul>
     <p><a href="#/lot/lot-3p-4">回到塔前 →</a></p>
   </section>

@@ -8,16 +8,21 @@
 
 import {
   applyMove, createGame, decode, grade, hint, isExact, legalMoves, moveTop, nextMove, overPar,
-  pegOf, pegTops, remaining, reset as resetGame, undo,
+  pegOf, pegStepOk, pegTops, remaining, reset as resetGame, undo,
 } from './core/game.js';
 import {
-  BAKE, LOTS, bands, byId, campaign, dailyBand, dailyBoard, firstRow, maxStates, randomLevel,
-  rowList, stats as tableStats,
+  BAKE, LOTS, bands, byId, campaign, dailyBand, dailyBoard, describe, firstRow, maxStates,
+  randomLevel, rowList, stats as tableStats,
 } from './core/library.js';
-import { EXHAUST_LIMIT, TABLE_BUDGET, FS_RANGE, closedForm3, fsPar, stateCount } from './core/solve.js';
+import { EXHAUST_LIMIT, TABLE_BUDGET, FS_RANGE, closedForm3, closedFormLine, fsPar, stateCount } from './core/solve.js';
 import { bestOf, dailyDone, doneList, load as loadSave, markDaily, recordResult, reset as wipeSave, selfTest, stats as saveStats, unlockedIds } from './core/storage.js';
 import { todayKey } from './core/rng.js';
-import { TIERS } from './core/make.js';
+// BANDS, not TIERS: TIERS is the four *free* difficulty bands the daily and random generators
+// partition, and make.dailyLevel hashes a date into `hash % TIERS.length` — adding 线柱 there would
+// silently re-band every date already played. BANDS is TIERS plus the appended 线柱 band, and it is
+// what a route or a label has to be looked up in, or `#/random/line/…` falls back to shoal and the
+// board mislabels itself.
+import { BANDS } from './core/make.js';
 import { createView } from './view.js';
 
 const $ = (id) => document.getElementById(id);
@@ -41,13 +46,26 @@ const app = {
 
 const view = createView(el.board, {
   move: (m) => commit(m.from, m.to),
-  // One ledger for both doors. js/core/game.js:170-173 bills "an empty peg holds nothing to lift"
-  // as a refusal, but a press on an empty peg is answered by the view and never reaches moveTop,
-  // so the shell books it here; the `(app.refused || 0) + 1` this replaced was a second ledger that
-  // nothing ever read — state prints `g.refused`.
-  refuse: () => { if (app.game) app.game.refused++; },
+  // One ledger for both doors. js/core/game.js bills "an empty peg holds nothing to lift" as a
+  // refusal in `moveTop`, but a press on an empty peg is answered by the view and never reaches
+  // moveTop, so the shell books it here; the `(app.refused || 0) + 1` this replaced was a second
+  // ledger that nothing ever read — state prints `g.refused`.
+  //
+  // The return value is the toast text: the view owns the gesture, the core owns the verdict, so
+  // the words describing a rejection come from this file in both cases rather than from a guess
+  // made in canvas code.
+  refuse: (info) => {
+    if (!app.game || !info) return null;
+    app.game.refused++;
+    return info.reason === 'nothing to lift'
+      ? `${PEG_NAMES[info.peg]} 柱是空的，没有盘可拿`
+      : refusalReason(info.from, info.to);
+  },
   hint: () => (app.demoTimer ? null : nextMove(app.game)),
 });
+
+// Read from the canvas, not retyped: a toast and the board must never name the same peg apart.
+const PEG_NAMES = view.PEG_NAMES;
 
 function toast(msg) {
   el.toast.textContent = msg;
@@ -64,7 +82,7 @@ function parse(hash) {
   if (parts[0] === 'index') return { mode: 'index' };
   if (parts[0] === 'daily') return { mode: 'daily', date: parts[1] || todayKey() };
   if (parts[0] === 'random') {
-    const band = TIERS.some((t) => t.key === parts[1]) ? parts[1] : 'shoal';
+    const band = BANDS.some((t) => t.key === parts[1]) ? parts[1] : 'shoal';
     const token = parts[2] || todayKey();
     return { mode: 'random', band, token };
   }
@@ -121,11 +139,30 @@ function apply() {
 }
 
 // ---- a move, from anywhere ------------------------------------------------------------------
+// Which half of the rule said no, in the words the toast prints. `moveTop` above stays the only
+// thing that bills a move: this reads the same exported `pegTops` and `pegStepOk` that the single
+// predicate `canMove` consults, so the message is derived from the two facts the rule uses and
+// cannot disagree with the refusal it is explaining. A shake alone left a 线柱 player guessing
+// whether they had broken the size rule or the adjacency rule — two different things to learn.
+function refusalReason(from, to) {
+  const g = app.game;
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || from >= g.pegs || to < 0 || to >= g.pegs) {
+    return '棋盘边上没有更多柱子';
+  }
+  if (from === to) return '同一根柱上不算移';
+  if (!pegStepOk(from, to, g.rule)) return '线柱：只能移到相邻柱';
+  const tops = pegTops(g.state, g.n, g.pegs);
+  if (tops[from] < 0) return `${PEG_NAMES[from]} 柱是空的，没有盘可拿`;
+  if (tops[to] !== -1 && tops[to] < tops[from]) return `大盘不能压小盘：${PEG_NAMES[to]} 柱顶是第 ${tops[to] + 1} 号盘`;
+  return '这一步不合规则';
+}
+
 function commit(from, to, via = 'pointer') {
   if (!app.game || app.game.done) return false;
   const ok = moveTop(app.game, from, to);
   if (!ok) {
     view.shakePeg(from);
+    toast(refusalReason(from, to));
     render();
     return false;
   }
@@ -136,6 +173,12 @@ function commit(from, to, via = 'pointer') {
   if (app.game.done) onFinish();
   render();
   return true;
+}
+
+// The canvas answers a rejected drag itself (its `up()` never reaches a billed move), so the
+// pointer door gets its wording from the same helper through the `refuse` hook above.
+function lastToast() {
+  return el.toast.hidden ? '' : el.toast.textContent;
 }
 
 // The win card. Graded strictly against the measured bound: matching it is a certified solution,
@@ -182,8 +225,10 @@ function render() {
   const left = remaining(g);
   const over = overPar(g);
   txt(el.lotId, lv.id || '—');
-  txt(el.band, `${(TIERS.find((t) => t.key === lv.tier) || { label: '—' }).label} · ${lv.tier}`);
-  txt(el.shape, `${lv.n} 盘 / ${lv.pegs} 柱${lv.kind === 'scramble' ? ' · 乱盘' : ' · 全塔'}`);
+  txt(el.band, `${(BANDS.find((t) => t.key === lv.tier) || { label: '—' }).label} · ${lv.tier}`);
+  // A 线柱 board has to say so on the same line as its shape: the pegs look identical to the
+  // published game's, and the whole difference is which drags the rule accepts.
+  txt(el.shape, `${lv.n} 盘 / ${lv.pegs} 柱${lv.rule === 'line' ? ' · 仅相邻' : ''}${lv.kind === 'scramble' ? ' · 乱盘' : ' · 全塔'}`);
   txt(el.steps, String(g.moves));
   txt(el.par, String(lv.par));
   txt(el.left, left === null ? '—' : String(left));
@@ -197,7 +242,7 @@ function render() {
   txt(el.today, todayKey());
   txt(el.cap, `穷尽上限 ${EXHAUST_LIMIT.toLocaleString('en-US')} 态 · 浏览器内 ≤ ${TABLE_BUDGET.toLocaleString('en-US')} 态自扫`);
   const mv = hint(g);
-  txt(el.hintline, g.done ? '已完成' : !mv ? '此位置的最短路线不在浏览器已知范围内' : `提示：第 ${mv.disk + 1} 号盘 ${['甲', '乙', '丙', '丁'][mv.from]} → ${['甲', '乙', '丙', '丁'][mv.to]}${left === null ? '' : `（剩 ${left} 步）`}`);
+  txt(el.hintline, g.done ? '已完成' : !mv ? '此位置的最短路线不在浏览器已知范围内' : `提示：第 ${mv.disk + 1} 号盘 ${PEG_NAMES[mv.from]} → ${PEG_NAMES[mv.to]}${left === null ? '' : `（剩 ${left} 步）`}`);
   txt(el.saveState, selfTest().ok ? '存档可用' : '存档不可用（隐私模式？仅本次会话）');
   txt(el.counter, `${BAKE.counterProof || 'counter-proof n=3: strict 7 vs rule-free 3'} · 无此规则下界更小，故规则是问题的一部分`);
   el.restart.disabled = false;
@@ -207,16 +252,18 @@ function render() {
 function renderIndex() {
   el.indexList.innerHTML = '';
   const head = document.createElement('p');
-  head.textContent = `${LOTS.length} 张 LOT，par 全部由穷尽 BFS 量出并与闭式（3 柱 2^n−1 / 4 柱 Frame-Stewart）对账；最大图 ${maxStates().toLocaleString('en-US')} 态。`;
+  head.textContent = `${LOTS.length} 张 LOT，par 全部由穷尽 BFS 量出并与闭式（3 柱 2^n−1 / 4 柱 Frame-Stewart / 线柱 3^n−1）对账；最大图 ${maxStates().toLocaleString('en-US')} 态。`;
   el.indexList.appendChild(head);
-  for (const line of rowList()) {
+  for (const row of LOTS) {
     const li = document.createElement('li');
     const a = document.createElement('a');
-    const id = `lot-${line.match(/pegs=(\d+)/)[1]}p-${line.match(/n=(\d+)/)[1]}`;
-    a.href = `#/lot/${id}`;
-    a.textContent = line;
+    // row.id, never a re-derivation from the printed fields: `lot-${pegs}p-${n}` would send a 线柱
+    // row to the free tower of the same shape — a different graph, a different par, same numbers on
+    // the screen until you click.
+    a.href = `#/lot/${row.id}`;
+    a.textContent = describe(row);
     li.appendChild(a);
-    const done = bestOf(id, loadSave());
+    const done = bestOf(row.id, loadSave());
     const tag = document.createElement('span');
     tag.textContent = done === null ? '未通关' : `记录 ${done} 步`;
     li.appendChild(tag);
@@ -231,6 +278,10 @@ function renderIndex() {
   const fs = document.createElement('p');
   fs.textContent = `四柱 Frame-Stewart 已公布值 n=1..12：${FS_RANGE.join(', ')}（本表只收 4^10 以内的行；n=11→65、n=12→81 因超出 ${EXHAUST_LIMIT.toLocaleString('en-US')} 态穷尽上限而不发行，仅在测试中核对）。三柱闭式 n=1..14：${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(closedForm3).join(', ')}。`;
   el.indexList.appendChild(fs);
+  const line = document.createElement('p');
+  const lineRows = LOTS.filter((r) => r.rule === 'line');
+  line.textContent = `线柱（三柱成排，只许移到相邻柱）闭式 3^n−1：${lineRows.map((r) => r.par).join(', ')}。发行到 n=${lineRows.length} 为止，因为线柱没有 O(n) 递推可用（三柱闭式 2^n−1 那条假设盘能跳到任意柱），浏览器只能自扫 3^${lineRows.length} = ${(3 ** lineRows.length).toLocaleString('en-US')} 态以内的图，上限 ${TABLE_BUDGET.toLocaleString('en-US')}；n=${lineRows.length + 1} 的 ${stateCount(lineRows.length + 1, 3).toLocaleString('en-US')} 态超出它，故不发行。线柱行最短路线数全部实测为 1。`;
+  el.indexList.appendChild(line);
   const gen = document.createElement('p');
   gen.textContent = `生成器实测：接受率 ${(BAKE.acceptance * 100).toFixed(0)}%，平均 par ${BAKE.meanScramblePar}，随机走步长度中位数随步数增长（${BAKE.walkStudy.map((w) => `k=${w.k}→${w.median}`).join(', ')}）。`;
   el.indexList.appendChild(gen);
@@ -244,7 +295,7 @@ function renderIndex() {
 el.undo.addEventListener('click', () => {
   if (!app.game) return;
   undo(app.game);
-  view.settle();
+  view.snap();
   render();
 });
 el.hint.addEventListener('click', () => {
@@ -256,14 +307,14 @@ el.hint.addEventListener('click', () => {
   }
   app.hints++;
   view.showHint(true);
-  txt(el.hintline, `提示：第 ${mv.disk + 1} 号盘 ${['甲', '乙', '丙', '丁'][mv.from]} → ${['甲', '乙', '丙', '丁'][mv.to]}`);
+  txt(el.hintline, `提示：第 ${mv.disk + 1} 号盘 ${PEG_NAMES[mv.from]} → ${PEG_NAMES[mv.to]}`);
   toast('已高亮一步（未代走）');
 });
 el.restart.addEventListener('click', () => {
   if (!app.game) return;
   resetGame(app.game);
   el.curtain.hidden = true;
-  view.settle();
+  view.snap();
   render();
 });
 el.close.addEventListener('click', () => { el.curtain.hidden = true; });
@@ -337,6 +388,7 @@ window.hanoi = {
       id: lv && lv.id,
       tier: lv && lv.tier,
       kind: lv && lv.kind,
+      rule: (lv && lv.rule) || 'free',
       index: app.index,
       n: g && g.n,
       pegs: g && g.pegs,
@@ -364,13 +416,15 @@ window.hanoi = {
     };
   },
   rows: () => rowList(),
-  table: () => LOTS.map((r) => ({ id: r.id, pegs: r.pegs, n: r.n, par: r.par, ways: r.ways, states: r.states, tier: r.tier })),
+  table: () => LOTS.map((r) => ({ id: r.id, pegs: r.pegs, n: r.n, par: r.par, ways: r.ways, states: r.states, tier: r.tier, rule: r.rule })),
   bandOf: (date) => dailyBand(date),
   census: () => ({ limit: EXHAUST_LIMIT, tableBudget: TABLE_BUDGET, rows: LOTS.length, maxStates: maxStates(), bakedChecks: BAKE.checks, counterProof: BAKE.counterProof, walkStudy: BAKE.walkStudy }),
   fs: (n) => fsPar(n),
   closed: (n) => closedForm3(n),
+  lineClosed: (n) => closedFormLine(n),
+  toastText: lastToast,
   load(hash) { go(hash); return app.level && app.level.id; },
-  level() { const lv = app.level; return lv ? { id: lv.id, pegs: lv.pegs, n: lv.n, start: lv.start, goal: lv.goal, par: lv.par, kind: lv.kind, tier: lv.tier } : null; },
+  level() { const lv = app.level; return lv ? { id: lv.id, pegs: lv.pegs, n: lv.n, rule: lv.rule || 'free', start: lv.start, goal: lv.goal, par: lv.par, kind: lv.kind, tier: lv.tier } : null; },
   // The certified continuation from wherever the board stands now, computed without touching it.
   route() {
     const g = app.game;
@@ -388,11 +442,13 @@ window.hanoi = {
     }
     return out;
   },
-  legal: () => (app.game ? legalMoves(app.game.state, app.game.n, app.game.pegs) : []),
+  // The same predicate the player is billed by, with the level's own rule: an `H.legal()` that read
+  // the free graph would hand a test a 线柱 "legal move" the game then refuses.
+  legal: () => (app.game ? legalMoves(app.game.state, app.game.n, app.game.pegs, app.game.rule) : []),
   // Where an automated finger has to press, in client pixels.
   diskPoint(disk) { return view.diskPoint(disk); },
   pegPoint(peg, slot) { return view.pegPoint(peg, slot); },
-  geom() { const g = view.geom(); return { w: g.usable + g.pad * 2, h: view.h, pegs: g.pegs, n: g.n, centers: [...Array(g.pegs).keys()].map((p) => g.center(p)), diskH: g.diskH, floor: g.floor }; },
+  geom() { const g = view.geom(); return { w: g.usable + g.pad * 2, h: view.h, pegs: g.pegs, n: g.n, rule: g.rule, centers: [...Array(g.pegs).keys()].map((p) => g.center(p)), diskH: g.diskH, floor: g.floor }; },
   canvasRect() { const r = el.board.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; },
   move(from, to) { return commit(from, to, 'hook'); },
   hintOnce() { el.hint.click(); return { hints: app.hints, line: el.hintline.textContent }; },

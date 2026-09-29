@@ -12,7 +12,7 @@
 
 import { goalState, startState } from './game.js';
 import { EXHAUST_LIMIT, TABLE_BUDGET, bfsTable, closedForm3, closedFormLine, fsPar, fitsExhaustive, metricsFor, stateCount } from './solve.js';
-import { BANDS, TIERS, canonicalLevel, dailyLevel, makeLevel, shapesIn, tierByKey, canScramble } from './make.js';
+import { BANDS, LINE_BAND, TIERS, canonicalLevel, dailyLevel, makeLevel, shapesIn, tierByKey, canScramble } from './make.js';
 import { hashSeed } from './rng.js';
 import LOTS, { BAKE, LOTS_VERSION, TIERS_META } from '../data/lots.js';
 
@@ -46,7 +46,10 @@ export function firstRow() {
 // A row on disk -> a level the game can play. Only `metrics` is added; nothing numeric changes.
 export function levelFor(row) {
   if (!row) return null;
-  const key = `${row.id || row.kind}|${row.pegs}|${row.n}|${row.start}`;
+  // The rule is part of the identity being cached: a 线柱 tower and the free tower of the same
+  // shape share (pegs, n, start) and differ only in which graph those numbers were measured on,
+  // so keying without it could hand one the other's distance table.
+  const key = `${row.id || row.kind}|${row.pegs}|${row.n}|${row.start}|${row.rule || 'free'}`;
   const hit = attached.get(key);
   if (hit) return hit;
   const goal = row.goal === undefined ? goalState(row.n, row.pegs) : row.goal;
@@ -102,8 +105,18 @@ export function bands() {
 
 // The random door: same token, same board, on any device — hashSeed is specified in test/rng.test.mjs.
 export function randomLevel(seed, tierKey = 'shoal') {
+  if (tierKey === LINE_BAND.key) return lineBoard(seed);
   const level = makeLevel(String(seed), tierByKey(tierKey).key);
   return levelFor({ ...level, id: level.id || `random-${tierKey}-${hashSeed(String(seed))}` });
+}
+
+// The 线柱 door has no scrambles — `canScramble` refuses the band because its walk-length study was
+// measured on the free graph (see make.js). So a random 线柱 token picks one of the baked 线柱 rows
+// instead of inventing a shape: every number it prints was measured by tools/bake.mjs, and clearing
+// it also clears that LOT.
+export function lineBoard(seed) {
+  const rows = LOTS.filter((r) => r.rule === 'line');
+  return levelFor(rows[hashSeed(String(seed)) % rows.length]);
 }
 
 export function dailyBoard(dateKey) {

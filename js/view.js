@@ -3,11 +3,17 @@
 // closer to the goal is js/core/game.js's business alone. That is also why an automated finger
 // and a human one are indistinguishable to the tests — both end up at `moveTop`.
 //
+// Two places would like to *predict* that verdict so the player can see it before committing: the
+// drag ghost's green/red outline, and the link glyphs drawn between pegs on a 线柱 board. Both
+// read the same `legalMoves(state, n, pegs, rule)` the rule predicate exports, with the game's own
+// `rule` passed through — a highlight computed under `'free'` over a board played under `'line'`
+// would advertise a move the core is about to refuse.
+//
 // Drawing is procedural: pegs are tapered rectangles with a highlight, disks are rounded bars
 // whose width is linear in diameter (game.js `diskWidth`), and the whole board is scaled by the
 // device pixel ratio. No images, no fonts, no audio files.
 
-import { diskWidth, pegTops, decode, pegOf, legalMoves } from './core/game.js';
+import { DEFAULT_RULE, diskWidth, pegTops, decode, pegOf, legalMoves } from './core/game.js';
 
 const PEG_NAMES = ['甲', '乙', '丙', '丁'];
 
@@ -57,6 +63,11 @@ export function createView(canvas, hooks = {}) {
   function geom() {
     const pegs = view.game ? view.game.pegs : 3;
     const n = view.game ? view.game.n : 4;
+    // The rule travels with the geometry so every drawing and hit-test below reads one value;
+    // `(view.game && view.game.rule) || DEFAULT_RULE` rather than `view.game.rule` because a
+    // hand-built game in a test may not carry the field, and `null` would reach pegStepOk as an
+    // unknown rule instead of as the published default.
+    const rule = (view.game && view.game.rule) || DEFAULT_RULE;
     const pad = Math.max(14, view.w * 0.05);
     const usable = view.w - pad * 2;
     const slot = usable / pegs;
@@ -65,7 +76,7 @@ export function createView(canvas, hooks = {}) {
     const stack = floor - headroom;
     const diskH = Math.max(9, Math.min(26, (stack * 0.82) / Math.max(4, Math.min(n, 9))));
     const maxHalf = slot * 0.44;
-    return { pegs, n, pad, usable, slot, floor, diskH, maxHalf, center: (p) => pad + slot * (p + 0.5), topOf: (k) => floor - diskH * 0.6 - k * diskH };
+    return { pegs, n, rule, pad, usable, slot, floor, diskH, maxHalf, center: (p) => pad + slot * (p + 0.5), topOf: (k) => floor - diskH * 0.6 - k * diskH };
   }
 
   // Client-space helpers: the maths above is in canvas-local CSS pixels, but a real mouse event
@@ -132,6 +143,37 @@ export function createView(canvas, hooks = {}) {
     return 34 + (disk / Math.max(1, n - 1)) * 150;
   }
 
+  // The rail itself. Legality is read from `legalMoves(state, n, pegs, rule)` — the same call the
+  // ghost outline below uses and the same predicate the core bills against — so a segment can
+  // never glow green on a move the game is about to refuse.
+  function drawLinks(g) {
+    const s = view.game.state;
+    const y = g.floor + Math.max(5, view.h * 0.015);
+    const d = view.drag;
+    const over = d && Math.abs(d.target - d.from) === 1
+      ? legalMoves(s, g.n, g.pegs, g.rule).some((m) => m.disk === d.disk && m.from === d.from && m.to === d.target)
+      : null;
+    const pair = d && Math.abs(d.target - d.from) === 1 ? [Math.min(d.from, d.target), Math.max(d.from, d.target)] : null;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let p = 0; p + 1 < g.pegs; p++) {
+      const lit = pair && pair[0] === p && pair[1] === p + 1;
+      ctx.strokeStyle = lit ? (over ? 'rgba(120,220,170,0.95)' : 'rgba(230,120,110,0.9)') : 'rgba(150,163,182,0.42)';
+      ctx.lineWidth = lit ? 4 : 2.5;
+      ctx.beginPath();
+      ctx.moveTo(g.center(p) + 7, y);
+      ctx.lineTo(g.center(p + 1) - 7, y);
+      ctx.stroke();
+      ctx.fillStyle = lit ? ctx.strokeStyle : 'rgba(150,163,182,0.42)';
+      for (const cx of [g.center(p) + 7, g.center(p + 1) - 7]) {
+        ctx.beginPath();
+        ctx.arc(cx, y, lit ? 3 : 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
   function draw() {
     const g = geom();
     const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -150,6 +192,11 @@ export function createView(canvas, hooks = {}) {
     ctx.fillStyle = '#3b4250';
     roundRect(g.pad * 0.4, g.floor, g.usable + g.pad * 1.2, 4, 2);
     ctx.fill();
+
+    // The 线柱 rail: a segment between every pair of neighbouring pegs and nothing else. A peg
+    // pair with no segment in front of the finger is the restriction drawn, rather than a rule
+    // the player has to remember.
+    if (view.game && g.rule === 'line') drawLinks(g);
 
     for (let p = 0; p < g.pegs; p++) {
       const cx = g.center(p);
@@ -205,7 +252,7 @@ export function createView(canvas, hooks = {}) {
       drawDisk(d, g.n, view.drag.x, view.drag.y, w, g.diskH, false, 0.94);
       // Ghost the candidate destination so an illegal target is obvious before the finger lifts.
       const tp = view.drag.target;
-      const okTarget = legalMoves(s, g.n, g.pegs).some((m) => m.disk === d && m.to === tp);
+      const okTarget = legalMoves(s, g.n, g.pegs, g.rule).some((m) => m.disk === d && m.to === tp);
       ctx.strokeStyle = okTarget ? 'rgba(120,220,170,0.75)' : 'rgba(230,120,110,0.7)';
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 4]);
@@ -280,8 +327,11 @@ export function createView(canvas, hooks = {}) {
     const { x, y } = localPoint(ev);
     const disk = diskAt(x, y);
     if (disk < 0) {
-      view.shake = { peg: pegAt(x), t0: performance.now() };
-      emit('refuse', { reason: 'nothing to lift' });
+      const peg = pegAt(x);
+      view.shake = { peg, t0: performance.now() };
+      // The peg travels with the reason: a press on an empty column never reaches `moveTop`, so
+      // this hook is the only place that can tell the shell which column stayed blank.
+      emit('refuse', { reason: 'nothing to lift', peg });
       settle();
       return;
     }
@@ -332,6 +382,16 @@ export function createView(canvas, hooks = {}) {
       settle();
     },
     settle,
+    // Snap the picture to the model. `travel` and `shake` animate *a move*, so undo and restart
+    // change the truth underneath them: without this the last eased frame keeps playing over a
+    // board that no longer matches it, and a frame fingerprint taken just after a restart reads
+    // that leftover tail as "the picture is unstable while nothing happens".
+    snap() {
+      view.travel.clear();
+      view.drag = null;
+      view.shake = null;
+      settle();
+    },
     geom,
     pegPoint,
     diskPoint,

@@ -20,7 +20,7 @@ const LINE_ROWS = 10;
 const REVE = 49;
 
 section('library: the table is the shape bake reported');
-eq(LOTS_VERSION, 1, 'version 1');
+eq(LOTS_VERSION, 1, 'version 1: 线柱 rows were appended and carry their own `rule`, so no reader needs a new version to interpret them');
 eq(LOTS.length, ROW_COUNT, `${rowCountHint()} rows shipped`);
 eq(BAKE.rows, ROW_COUNT, 'and the bake banner agrees with the array it wrote');
 eq(maxStates(), EXHAUST_LIMIT, 'the largest graph in the table is 3^13 = 1594323 positions');
@@ -158,6 +158,43 @@ section('library: daily and random boards arrive through the same door as baked 
   while (!g.done && guard++ < 400) moveTop(g, hint(g).from, hint(g).to);
   eq(g.moves, d.par, 'the daily board plays to its measured par through the library door as well');
   eq(isExact(g), d.pegs === 3, 'three-peg boards are exact at click time; four-peg ones say so when they are not');
+}
+
+section('library: the 线柱 door serves certified towers, never an unmeasured scramble');
+{
+  // make.js's generator refuses this band — "band line has no scramble-able shape" — because the
+  // walk-length study behind every scramble band was measured on the free graph. The route must
+  // neither throw nor quietly re-band the request, so a 线柱 token picks one of the baked rows.
+  const a = randomLevel('gate', 'line');
+  eq(a.tier, 'line', 'the band the hash asked for is the band the board is in');
+  eq(a.rule, 'line', 'and the rule travels with the level');
+  eq(a.kind, 'canonical', 'a certified full tower, not a shuffle');
+  eq(byId(a.id).par, a.par, 'the board is a baked row, so every number on it was measured at build time');
+  eq(a.par, PAR_LINE[a.n], '…which is the hand-typed 3^n−1 for its height');
+  eq(a.metrics.kind, 'table', 'the browser sweeps a 线柱 graph itself — no O(n) recursion exists for it');
+  eq(a.metrics.exact, true, 'so its remaining-moves read is exact, not an em dash');
+  const b = randomLevel('gate', 'line');
+  deepEq([a.id, a.start, a.goal], [b.id, b.start, b.goal], 'a shared token is one shared 线柱 board');
+  const seen = new Set();
+  for (let i = 0; i < 60; i++) seen.add(randomLevel(`spread${i}`, 'line').id);
+  eq(seen.size, LINE_ROWS, 'and 60 tokens reach all ten certified towers, not just the shallowest');
+  const small = byId('lot-line-3');
+  const g = createGame(small);
+  let guard = 0;
+  while (!g.done && guard++ < 60) moveTop(g, hint(g).from, hint(g).to);
+  eq(g.moves, small.par, 'a 线柱 board played through hint+moveTop lands exactly on its printed par');
+  eq(g.refused, 0, '…and the rule never refused a step of the certified route');
+  eq(isExact(g), true, '…and stays exact the whole way');
+  // The calendar is untouched. This is why LINE_BAND is appended in BANDS rather than pushed into
+  // TIERS: dailyLevel hashes a date into `hash % TIERS.length`, so a fifth entry there would
+  // re-band every date that has already been played and publish a different puzzle for them.
+  eq(['2026-09-27', '2026-09-28', '2026-09-29', '2026-12-01'].map((d) => dailyBand(d)).join(','),
+    'twined,linked,shoal,shoal', 'the four hand-typed date bands are still what they were before the variant');
+  let lineDaily = 0;
+  for (let m = 1; m <= 12; m++) {
+    for (let day = 1; day <= 28; day += 3) if (dailyBand(`2026-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`) === 'line') lineDaily++;
+  }
+  eq(lineDaily, 0, 'and no date in a scanned year lands on a band that has nothing to serve it');
 }
 
 section('library: band bookkeeping matches the rows');
