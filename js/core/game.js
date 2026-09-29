@@ -12,6 +12,10 @@
 //反证 (test/solve.test.mjs) meaningful: there is no second copy of the rule for a test to
 // accidentally pass instead.
 //
+// The peg-adjacency policy (the `line` variant) is the third half of that same predicate, and
+// js/core/solve.js's BFS loop calls the very same `pegStepOk` rather than re-deriving "neighbour"
+// — so a variant cannot be measured under one adjacency rule and played under another.
+//
 // No DOM, no window: `node test/*.test.mjs` imports this file directly.
 
 export const MIN_PEGS = 3;
@@ -19,6 +23,30 @@ export const MAX_PEGS = 4; // 5+ pegs: Frame-Stewart is not even published there
 export const MAX_DISKS = 13; // 3^13 is the largest graph this repo promises to finish. See solve.js.
 
 export const SMALLEST = 0; // disk index 0, so "smaller disk" means "lower index" everywhere below
+
+// Which pegs a disk may travel between. `free` is the published game; `line` lays the pegs out
+// in a row and bills only neighbouring pegs — that single restriction is the whole variant, and
+// it lives *inside* the rule predicate rather than as a second copy of it, so the BFS, the
+// highlight and the shell's refusal still all read one answer to "may this move happen?".
+export const RULES = ['free', 'line'];
+export const DEFAULT_RULE = 'free';
+
+// The adjacency half of the rule. An unrecognised policy is a build-time bug, so it throws
+// instead of quietly meaning "no restriction" — a silent `free` would print the wrong par.
+export function pegStepOk(from, to, rule = DEFAULT_RULE) {
+  if (rule === 'free') return true;
+  if (rule === 'line') return Math.abs(to - from) === 1;
+  throw new Error(`unknown rule ${JSON.stringify(rule)} (expected one of ${RULES.join(', ')})`);
+}
+
+// …and 线柱 is only defined for three pegs. Four pegs in a row have no published optimum, and
+// "row" versus "ring" is a genuine ambiguity there, so a row on that shape would print a number
+// nobody can witness. This is the promise boundary: refuse the shape, do not ship an estimate.
+export function ruleSupported(pegs, rule = DEFAULT_RULE) {
+  if (rule === 'free') return true;
+  if (rule === 'line') return pegs === 3;
+  return false;
+}
 
 // Which peg disk `d` sits on.
 export function pegOf(state, d, pegs = 3) {
@@ -55,21 +83,25 @@ export function pegTops(state, n, pegs = 3) {
   return tops;
 }
 
-// THE rule, both halves of it:
+// THE rule, all three halves of it:
 //   * the disk must be the top of its peg (no smaller disk on the same peg);
-//   * the destination must hold no smaller disk (a larger disk may not be put on a smaller one).
-export function canMove(state, disk, to, n, pegs = 3, tops = null) {
+//   * the destination must hold no smaller disk (a larger disk may not be put on a smaller one);
+//   * the destination peg must be reachable under the policy (`line` bills neighbours only).
+// solve.js's BFS loop calls the same `pegStepOk`, so a variant cannot be measured by one rule
+// and played by another.
+export function canMove(state, disk, to, n, pegs = 3, tops = null, rule = DEFAULT_RULE) {
   if (disk < 0 || disk >= n) return false;
   if (to < 0 || to >= pegs) return false;
   const t = tops || pegTops(state, n, pegs);
   const from = pegOf(state, disk, pegs);
   if (to === from) return false;
+  if (!pegStepOk(from, to, rule)) return false;
   if (t[from] !== disk) return false; // buried
   return t[to] === -1 || t[to] > disk; // receiving peg must not carry something smaller
 }
 
 // Every legal single move from a position, as {disk, from, to}.
-export function legalMoves(state, n, pegs = 3) {
+export function legalMoves(state, n, pegs = 3, rule = DEFAULT_RULE) {
   const tops = pegTops(state, n, pegs);
   const out = [];
   for (let p = 0; p < pegs; p++) {
@@ -77,6 +109,7 @@ export function legalMoves(state, n, pegs = 3) {
     if (d === -1) continue;
     for (let t = 0; t < pegs; t++) {
       if (t === p) continue;
+      if (!pegStepOk(p, t, rule)) continue;
       if (tops[t] !== -1 && tops[t] < d) continue;
       out.push({ disk: d, from: p, to: t });
     }
@@ -119,11 +152,14 @@ export function createGame(level) {
   if (!level || !Number.isInteger(level.n) || !Number.isInteger(level.pegs)) {
     throw new Error('createGame needs a level with n and pegs');
   }
+  const rule = level.rule || DEFAULT_RULE;
+  if (!RULES.includes(rule)) throw new Error(`createGame: unknown rule ${JSON.stringify(rule)}`);
   const game = {
     id: level.id,
     tier: level.tier,
     n: level.n,
     pegs: level.pegs,
+    rule,
     par: level.par,
     goal: level.goal,
     metrics: level.metrics || null,
@@ -145,7 +181,7 @@ export function move(game, disk, to) {
     game.refused++;
     return false;
   }
-  if (!canMove(game.state, disk, to, game.n, game.pegs)) {
+  if (!canMove(game.state, disk, to, game.n, game.pegs, null, game.rule || DEFAULT_RULE)) {
     game.refused++;
     return false;
   }
@@ -171,7 +207,7 @@ export function moveTop(game, from, to) {
     game.refused++;
     return false; // an empty peg holds nothing to lift
   }
-  if (!canMove(game.state, disk, to, game.n, game.pegs, tops)) {
+  if (!canMove(game.state, disk, to, game.n, game.pegs, tops, game.rule || DEFAULT_RULE)) {
     game.refused++;
     return false;
   }

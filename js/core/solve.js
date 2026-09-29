@@ -27,7 +27,7 @@
 // option should too.
 
 import {
-  applyMove, canMove, goalState, legalMoves, pegOf, startState,
+  applyMove, canMove, goalState, legalMoves, pegOf, pegStepOk, RULES, startState,
   MAX_DISKS, MAX_PEGS, MIN_PEGS,
 } from './game.js';
 
@@ -52,9 +52,12 @@ export function fitsExhaustive(n, pegs = 3) {
 }
 
 // ---------- 1. exhaustive BFS over the whole graph ----------------------------------------
-export function bfsTable(n, pegs = 3, { strict = true, ways = false, root = null } = {}) {
+export function bfsTable(n, pegs = 3, { strict = true, ways = false, root = null, rule = 'free' } = {}) {
   if (!Number.isInteger(n) || n < 1 || n > MAX_DISKS) throw new Error(`bfsTable(${n}): disk count out of range`);
   if (!Number.isInteger(pegs) || pegs < MIN_PEGS || pegs > MAX_PEGS) throw new Error(`bfsTable: peg count ${pegs} out of range`);
+  // Throws rather than defaulting: an unrecognised policy must not silently sweep the *free*
+  // graph and then have its numbers quoted for the variant.
+  if (!RULES.includes(rule)) throw new Error(`bfsTable: unknown rule ${JSON.stringify(rule)}`);
   const size = stateCount(n, pegs);
   if (size > EXHAUST_LIMIT) {
     throw new Error(`bfsTable(${n}, ${pegs}): ${size} positions exceeds the ${EXHAUST_LIMIT} cap`);
@@ -86,6 +89,9 @@ export function bfsTable(n, pegs = 3, { strict = true, ways = false, root = null
       if (d === -1) continue;
       for (let t = 0; t < pegs; t++) {
         if (t === p) continue;
+        // The same predicate the finger is held to — `legalMoves` calls it too, so the graph
+        // swept here and the graph played on screen cannot drift apart.
+        if (!pegStepOk(p, t, rule)) continue;
         if (strict && tops[t] !== -1 && tops[t] < d) continue;
         edges++;
         const ns = s + (t - p) * pow[d];
@@ -112,6 +118,7 @@ export function bfsTable(n, pegs = 3, { strict = true, ways = false, root = null
   return {
     n,
     pegs,
+    rule,
     size,
     root: r,
     strict,
@@ -127,13 +134,13 @@ export function bfsTable(n, pegs = 3, { strict = true, ways = false, root = null
   };
 }
 
-// The table the game and the tests read, built once per (n, pegs) and cached.
+// The table the game and the tests read, built once per (n, pegs, rule) and cached.
 const cache = new Map();
-export function table(n, pegs = 3) {
-  const key = `${n}:${pegs}`;
+export function table(n, pegs = 3, rule = 'free') {
+  const key = `${n}:${pegs}:${rule}`;
   let t = cache.get(key);
   if (!t) {
-    t = bfsTable(n, pegs, { ways: stateCount(n, pegs) <= 3 ** 10 });
+    t = bfsTable(n, pegs, { ways: stateCount(n, pegs) <= 3 ** 10, rule });
     cache.set(key, t);
   }
   return t;
@@ -144,6 +151,28 @@ export function table(n, pegs = 3) {
 export function closedForm3(n) {
   if (!Number.isInteger(n) || n < 1 || n > 40) throw new Error(`closedForm3(${n}): out of range`);
   return 2 ** n - 1;
+}
+
+// 线柱 (three pegs in a row, a disk may only hop to a neighbouring peg). Two published closed
+// forms, one per target peg:
+//
+//   corner → corner   T(n) = 3·T(n−1) + 2,  T(1) = 2                 ⟹  T(n) = 3^n − 1
+//   corner → middle   S(n) = T(n−1) + 1 + S(n−1),  S(1) = 1          ⟹  S(n) = (3^n − 1) / 2
+//
+// `test/line.test.mjs` re-derives both recurrences locally and holds them against the exhaustive
+// sweep position by position, so the closed forms below are the summary, not the evidence. The
+// identity 2·S(n) = T(n) is a third road: it connects the two numbers without touching the graph.
+// Capped where doubles stay exact and far past anything this repo can ship (3^13 is EXHAUST_LIMIT).
+export const LINE_FORM_MAX_N = 25;
+
+export function closedFormLine(n) {
+  if (!Number.isInteger(n) || n < 1 || n > LINE_FORM_MAX_N) throw new Error(`closedFormLine(${n}): out of range`);
+  return 3 ** n - 1;
+}
+
+export function closedFormLineHalf(n) {
+  if (!Number.isInteger(n) || n < 1 || n > LINE_FORM_MAX_N) throw new Error(`closedFormLineHalf(${n}): out of range`);
+  return (3 ** n - 1) / 2;
 }
 
 // Distance from ANY three-peg position to the finished tower, in O(n).
@@ -284,11 +313,11 @@ export function fsRoute(n, pegs = 4) {
 
 // Replay a route through the *same* predicate a finger is held to. Returns the states it
 // passes through, or throws — an illegal "certified solution" is a build failure, not a note.
-export function replayRoute(n, pegs, moves, start = startState(n, pegs)) {
+export function replayRoute(n, pegs, moves, start = startState(n, pegs), rule = 'free') {
   const states = [start];
   let s = start;
   for (const mv of moves) {
-    if (!canMove(s, mv.disk, mv.to, n, pegs)) {
+    if (!canMove(s, mv.disk, mv.to, n, pegs, null, rule)) {
       throw new Error(`route illegal at move ${states.length}: disk ${mv.disk + 1} ${mv.from}→${mv.to} from state ${s}`);
     }
     s = applyMove(s, mv.disk, mv.to, n, pegs);
@@ -297,8 +326,8 @@ export function replayRoute(n, pegs, moves, start = startState(n, pegs)) {
   return { end: s, states, moves: moves.length };
 }
 
-export function routeCount(n, pegs = 3) {
-  const t = table(n, pegs);
+export function routeCount(n, pegs = 3, rule = 'free') {
+  const t = table(n, pegs, rule);
   if (!t.routeCount) return null;
   return t.routeCount[startState(n, pegs)];
 }
@@ -322,22 +351,56 @@ const metricsCache = new Map();
 //                whole graph at build time; `remaining` is only reported while the player is
 //                still following the certified route, and says null (an em dash on screen)
 //                the moment they leave it.
-export function metricsFor(n, pegs, goal = goalState(n, pegs), start = startState(n, pegs)) {
-  const key = `${n}|${pegs}|${goal}|${start}`;
+export function metricsFor(n, pegs, goal = goalState(n, pegs), start = startState(n, pegs), rule = 'free') {
+  const key = `${n}|${pegs}|${goal}|${start}|${rule}`;
   let m = metricsCache.get(key);
   if (!m) {
-    m = buildMetrics(n, pegs, goal, start);
+    m = buildMetrics(n, pegs, goal, start, rule);
     metricsCache.set(key, m);
   }
   return m;
 }
 
-function buildMetrics(n, pegs, goal, start) {
+// The line variant has no O(n) recursion wired into the game, so the only instrument it has for
+// an arbitrary position is the swept table. Rather than let that table stand on its own, every
+// position is re-read through `legalMoves`/`canMove` — the predicate the finger is held to:
+//
+//   * a legal move can never change the distance by more than 1 (if one did, the sweep's edge
+//     set and the predicate's edge set disagree — the BFS inlines the rule for speed, and this
+//     is what stops that inlined copy from drifting);
+//   * while a position is unsolved, the move the table hands out as `next` must be legal under
+//     the predicate and must land exactly one step closer to the goal.
+//
+// Costs a few milliseconds at TABLE_BUDGET and runs once per (n, pegs, goal, start, rule).
+function gradientCheck(t, n, pegs, rule) {
+  for (let s = 0; s < t.size; s++) {
+    const k = t.dist[s];
+    if (k < 0) throw new Error(`gradientCheck: state ${s} was never reached under rule ${rule}`);
+    for (const mv of legalMoves(s, n, pegs, rule)) {
+      const ns = applyMove(s, mv.disk, mv.to, n, pegs);
+      const step = Math.abs(t.dist[ns] - k);
+      if (step > 1) {
+        throw new Error(`gradientCheck: legal move disk ${mv.disk + 1} ${mv.from}→${mv.to} from ${s} jumps ${k}→${t.dist[ns]}`);
+      }
+    }
+    if (k === 0) continue;
+    const mv = { disk: t.nextDisk[s], from: pegOf(s, t.nextDisk[s], pegs), to: t.nextTo[s] };
+    if (!canMove(s, mv.disk, mv.to, n, pegs, null, rule)) {
+      throw new Error(`gradientCheck: hint move ${JSON.stringify(mv)} at state ${s} is illegal under rule ${rule}`);
+    }
+    const ns = applyMove(s, mv.disk, mv.to, n, pegs);
+    if (t.dist[ns] !== k - 1) {
+      throw new Error(`gradientCheck: hint at state ${s} lands on distance ${t.dist[ns]}, not ${k - 1}`);
+    }
+  }
+}
+
+function buildMetrics(n, pegs, goal, start, rule) {
   const size = stateCount(n, pegs);
   if (size <= TABLE_BUDGET) {
-    const t = table(n, pegs);
+    const t = table(n, pegs, rule);
     if (t.root !== goal) throw new Error(`metricsFor: table is rooted at ${t.root}, level wants goal ${goal}`);
-    if (pegs === 3) {
+    if (pegs === 3 && rule === 'free') {
       // Two instruments over the same graph, checked position by position on this device.
       for (let s = 0; s < t.size; s++) {
         const d3 = dist3(s, n, goalPegOf(goal, n, pegs));
@@ -346,33 +409,37 @@ function buildMetrics(n, pegs, goal, start) {
         }
       }
     }
+    if (rule !== 'free') gradientCheck(t, n, pegs, rule);
     return {
       kind: 'table',
       exact: true,
+      rule,
       states: size,
-      proof: `浏览器穷尽 BFS ${size} 态，与${pegs === 3 ? '闭式递推逐位' : '构建期递推'}对账`,
+      proof: `浏览器穷尽 BFS ${size} 态（${rule === 'line' ? '相邻柱，逐位与规则谓词对账' : `与${pegs === 3 ? '闭式递推逐位' : '构建期递推'}对账`}）`,
       remaining: (s) => t.dist[s],
       next: (s) => (t.nextDisk[s] < 0 ? null : { disk: t.nextDisk[s], from: pegOf(s, t.nextDisk[s], pegs), to: t.nextTo[s] }),
       verifiedBySweep: true,
     };
   }
-  if (pegs === 3 && size <= EXHAUST_LIMIT) {
+  if (pegs === 3 && rule === 'free' && size <= EXHAUST_LIMIT) {
     const g = goalPegOf(goal, n, pegs);
     return {
       kind: 'dist3',
       exact: true,
+      rule,
       states: size,
       proof: `闭式 2^${n}−1 + O(n) 递推（n≤7 的 3279 个位置已与穷尽 BFS 逐位对账）`,
       remaining: (s) => dist3(s, n, g),
       next: (s) => next3Move(s, n, g),
     };
   }
-  if (pegs === 4 && n >= 9 && n <= 10) {
+  if (pegs === 4 && rule === 'free' && n >= 9 && n <= 10) {
     const moves = fsRoute(n, pegs);
     const { states } = replayRoute(n, pegs, moves, start);
     return {
       kind: 'route',
       exact: false,
+      rule,
       states: size,
       proof: `构建期穷尽 BFS ${size} 态（tools/bake.mjs）；浏览器内只走认证路线`,
       route: moves,
@@ -381,7 +448,9 @@ function buildMetrics(n, pegs, goal, start) {
       next: (s, movesSoFar) => (states[movesSoFar] === s && moves[movesSoFar] ? moves[movesSoFar] : null),
     };
   }
-  throw new Error(`metricsFor(${n}, ${pegs}): ${size} positions exceeds ${EXHAUST_LIMIT}; no measurement is possible and none is printed`);
+  // The line variant deliberately stops here: `dist3` assumes a disk can hop between any two
+  // pegs, so handing it to a 线柱 board would print exact-looking numbers off the wrong graph.
+  throw new Error(`metricsFor(${n}, ${pegs}, ${rule}): ${size} positions exceeds ${TABLE_BUDGET} for rule '${rule}'; no instrument is trusted there and none is printed`);
 }
 
 // The goal of a canonical tower is every digit = pegs-1, i.e. the state `pegs^n − 1`; a

@@ -19,8 +19,8 @@
 // Bands are named after the tower shape (the spec's n ranges); their par ranges are measured
 // from the rows that actually shipped and baked into js/data/lots.js as TIERS_META.
 
-import { goalState, legalMoves, startState, applyMove, MAX_DISKS } from './game.js';
-import { EXHAUST_LIMIT, TABLE_BUDGET, closedForm3, fsPar, metricsFor, stateCount } from './solve.js';
+import { goalState, legalMoves, ruleSupported, startState, applyMove, MAX_DISKS } from './game.js';
+import { EXHAUST_LIMIT, TABLE_BUDGET, closedForm3, closedFormLine, fsPar, metricsFor, stateCount } from './solve.js';
 import { hashSeed, rngFrom } from './rng.js';
 
 export const TIERS = [
@@ -70,30 +70,35 @@ export function tierByKey(key) {
 }
 
 // The one door to "how many moves does this position need?", so a generated board and a baked
-// board can never be measured with two different yardsticks.
-export function parOf(state, pegs, n, goal = goalState(n, pegs)) {
-  const m = metricsFor(n, pegs, goal, state);
+// board can never be measured with two different yardsticks. `rule` travels with it: a 线柱 board
+// is measured on the adjacency graph, never on the free one.
+export function parOf(state, pegs, n, goal = goalState(n, pegs), rule = 'free') {
+  const m = metricsFor(n, pegs, goal, state, rule);
   return m.remaining(state, 0);
 }
 
 // The canonical tower for a shape, with its par from the distance machinery and the arithmetic
 // alongside it: the two fields the spec asks every LOT row to print.
-export function canonicalLevel(pegs, n, id = null) {
+export function canonicalLevel(pegs, n, id = null, rule = 'free') {
   const start = startState(n, pegs);
   const goal = goalState(n, pegs);
+  const line = rule === 'line';
+  if (!ruleSupported(pegs, rule)) throw new Error(`canonicalLevel(${pegs}, ${n}, ${rule}): unsupported rule`);
   return {
     kind: 'canonical',
     id,
     pegs,
     n,
+    rule,
     tier: tierOf(pegs, n),
     start,
     goal,
-    par: parOf(start, pegs, n, goal),
+    par: parOf(start, pegs, n, goal, rule),
     states: stateCount(n, pegs),
-    closedForm: pegs === 3 ? closedForm3(n) : null,
-    frameStewart: pegs === 4 ? fsPar(n) : null,
-    metrics: metricsFor(n, pegs, goal, start),
+    closedForm: pegs === 3 && !line ? closedForm3(n) : null,
+    closedFormLine: line ? closedFormLine(n) : null,
+    frameStewart: pegs === 4 && !line ? fsPar(n) : null,
+    metrics: metricsFor(n, pegs, goal, start, rule),
   };
 }
 
