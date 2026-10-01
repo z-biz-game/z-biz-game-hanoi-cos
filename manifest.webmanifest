@@ -1,0 +1,28 @@
+{
+  "name": "汉诺塔 HANOI",
+  "short_name": "HANOI",
+  "description": "32 张 LOT 的汉诺塔：每关最少步数由穷尽 BFS 量出，并与 2^n−1 / Frame-Stewart / 线柱 3^n−1 闭式对账。",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "categories": ["games", "puzzle"],
+  "background_color": "#0f1116",
+  "theme_color": "#0f1116",
+  "icons": [
+    { "src": "assets/icons/favicon-32.png", "sizes": "32x32", "type": "image/png" },
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "第一关", "url": "./#/lot/lot-3p-4", "description": "3 柱 4 盘，已证下界 15 步" },
+    { "name": "线柱", "url": "./#/lot/lot-line-4", "description": "只许移到相邻柱，下界 3^n−1" },
+    { "name": "每日", "url": "./#/daily", "description": "按日期哈希的题面，全球同盘" },
+    { "name": "LOT 目录", "url": "./#/index", "description": "32 张 LOT 与它们的证明" }
+  ]
+}

@@ -6,8 +6,25 @@
 <meta name="color-scheme" content="dark">
 <meta name="description" content="汉诺塔：32 张 LOT，每关最少步数由穷尽 BFS 量出，并与 2^n−1 / Frame-Stewart / 线柱 3^n−1 对账。">
 <title>汉诺塔 · HANOI</title>
-<!-- 家族约定：`data:,` 让浏览器根本不发 favicon 请求（不增加资产，也不污染 verify.sh 的 console 干净断言）。 -->
-<link rel="icon" href="data:,">
+<!-- 图标套件由 assets/gen/make_art.py 生成（母图 1024，派生到 16..512），盘上真 PNG，
+     所以不再用家族里那条 `href="data:,"` 的省请求约定 —— 那条是给「没有位图可指」的仓用的。
+     192 那张同时满足「favicon」与「≥180px 可装到桌面」两个口径（006_商业化就绪度标准 §3）。 -->
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/icons/favicon-192.png">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f1116">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="HANOI">
+<meta property="og:type" content="website">
+<meta property="og:title" content="汉诺塔 HANOI · 下界是量出来的">
+<meta property="og:description" content="32 张 LOT，每关最少步数由穷尽 BFS 量出，并与 2^n−1 / Frame-Stewart / 线柱 3^n−1 对账。">
+<meta property="og:image" content="assets/og/hanoi-og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="css/game.css">
 </head>
 <body data-mode="lot">
@@ -60,6 +77,7 @@
       </div>
       <div class="save">
         <span id="saveState">存档检查中…</span>
+        <span id="pwaState" class="muted">离线壳检查中…</span>
         <span class="muted">今日 <b id="today">—</b></span>
         <button id="reset" type="button">清空存档</button>
       </div>

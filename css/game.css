@@ -15,6 +15,12 @@
   --chip: #232833;
   --radius: 10px;
   --maxw: 1180px;
+  /* safe-area：index.html 的 viewport 带 viewport-fit=cover，env() 在 iOS 上才有非零值；
+     桌面浏览器全部解析为 0，所以下面这些 calc 不需要 @supports 兜底。 */
+  --pad-x: calc(20px + env(safe-area-inset-left, 0px));
+  --pad-r: calc(20px + env(safe-area-inset-right, 0px));
+  --pad-t: calc(18px + env(safe-area-inset-top, 0px));
+  --pad-b: calc(40px + env(safe-area-inset-bottom, 0px));
 }
 
 * { box-sizing: border-box; }
@@ -34,7 +40,7 @@ a:hover, a:focus-visible { text-decoration: underline; }
 .top {
   max-width: var(--maxw);
   margin: 0 auto;
-  padding: 18px 20px 6px;
+  padding: var(--pad-t) var(--pad-r) 6px var(--pad-x);
   display: flex;
   flex-wrap: wrap;
   gap: 12px 24px;
@@ -55,10 +61,15 @@ h1 .latin { color: var(--ink-dim); font-size: 14px; letter-spacing: 0.32em; marg
   background: #1b1f28;
   color: var(--ink);
   font-size: 13px;
+  /* 拇指可命中的下限：44×44 CSS px（006 标准 §触摸）。字号 13px 的门链原本只有 ~30px 高。 */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-inline: 14px;
 }
 .doors a:hover { border-color: var(--brass); text-decoration: none; }
 
-main { max-width: var(--maxw); margin: 0 auto; padding: 10px 20px 40px; }
+main { max-width: var(--maxw); margin: 0 auto; padding: 10px var(--pad-r) var(--pad-b) var(--pad-x); }
 
 #routeBox {
   display: grid;
@@ -143,6 +154,8 @@ button {
   border-radius: 8px;
   padding: 7px 10px;
   cursor: pointer;
+  min-height: 44px;
+  min-width: 44px;
 }
 button:hover:not(:disabled) { border-color: var(--brass); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -179,7 +192,9 @@ ul.lots li {
   padding: 8px 12px;
   background: #14171e;
   font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-height: 44px;
 }
+ul.lots li a { display: inline-flex; align-items: center; min-height: 44px; }
 ul.lots li span { color: var(--ink-dim); }
 
 .curtain {
@@ -188,7 +203,7 @@ ul.lots li span { color: var(--ink-dim); }
   display: grid;
   place-items: center;
   background: rgba(7, 8, 11, 0.78);
-  padding: 20px;
+  padding: calc(20px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px));
   z-index: 30;
 }
 /* The UA's [hidden] { display: none } is an author-rule-beatable default: `.curtain` sets
@@ -211,7 +226,7 @@ ul.lots li span { color: var(--ink-dim); }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 22px;
+  bottom: calc(22px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   background: #232a36;
   border: 1px solid #3d4757;

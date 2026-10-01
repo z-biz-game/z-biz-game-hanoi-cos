@@ -24,10 +24,11 @@ import { todayKey } from './core/rng.js';
 // board mislabels itself.
 import { BANDS } from './core/make.js';
 import { createView } from './view.js';
+import { setupPwa } from './pwa.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {};
-for (const id of ['board', 'stage', 'lotId', 'band', 'shape', 'steps', 'left', 'over', 'par', 'space', 'ways', 'proof', 'best', 'unlocked', 'hintline', 'undo', 'hint', 'restart', 'demo', 'hintToggle', 'curtain', 'card', 'cardTitle', 'cardBody', 'cardNext', 'close', 'index', 'indexList', 'toast', 'reset', 'saveState', 'today', 'cap', 'counter', 'routeBox']) {
+for (const id of ['board', 'stage', 'lotId', 'band', 'shape', 'steps', 'left', 'over', 'par', 'space', 'ways', 'proof', 'best', 'unlocked', 'hintline', 'undo', 'hint', 'restart', 'demo', 'hintToggle', 'curtain', 'card', 'cardTitle', 'cardBody', 'cardNext', 'close', 'index', 'indexList', 'toast', 'reset', 'saveState', 'today', 'cap', 'counter', 'routeBox', 'pwaState']) {
   el[id] = $(id);
 }
 
@@ -376,6 +377,12 @@ window.addEventListener('keydown', (ev) => {
 
 view.measure();
 apply();
+
+// 离线壳：注册结果写进面板，不写进 console（本仓的验收线把控制台干净算作红）。
+// 放在 apply() 之后 —— 注册快慢与题面无关，一个装不上的 SW 不该让第一张塔晚到。
+const pwa = setupPwa(({ status, detail }) => {
+  txt(el.pwaState, `离线壳 ${status}${detail ? ` · ${detail}` : ''}`);
+});
 
 // ---- the test hook --------------------------------------------------------------------------
 window.hanoi = {
