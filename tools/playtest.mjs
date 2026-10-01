@@ -166,7 +166,23 @@ const SCENARIOS = {
   const m1 = H.muteOn(false);
   T('静音期间一个振荡器都不新建', m1.stats.created === createdAt, [createdAt, m1.stats.created]);
   T('…静音下的声音请求被如实计数', m1.stats.mutedPlays >= 2, m1.stats.mutedPlays);
-  T('…取消静音后走过建上下文这条路', m1.stats.created + m1.stats.blocked > 0, m1.stats);
+  T('…取消静音后确实走过建上下文这条路（建成本、或被 autoplay 明确挡下都算走过）', (() => {
+    const a = H.state.audio;
+    return a.created + a.blocked > 0 || a.state !== 'idle';
+  })(), H.state.audio);
+  T('…静音走的是 suspend/resume，不是只翻一个布尔', (() => {
+    const a0 = H.state.audio;
+    const b = a0.suspended + a0.resumed;
+    H.muteOn(true); H.muteOn(false);
+    const a1 = H.state.audio;
+    // 上下文从没建起来（autoplay 被挡或没有 AudioContext）时 suspend 无从谈起，那条路只验开关本身。
+    if (a0.state === 'idle' && a1.state === 'idle') return a1.muted === false && a1.blocked >= a0.blocked;
+    return a1.suspended + a1.resumed >= b + 2;
+  })(), H.state.audio);
+  T('全屏按钮在 HUD 上真实存在（不是引用一个不存在的 id）', (() => {
+    const b = document.getElementById('full');
+    return !!b && !!b.closest('.controls') && b.getBoundingClientRect().height >= 44;
+  })(), null);
 
   H.restart();
   H.reducedMotionOn(false);
@@ -178,6 +194,20 @@ const SCENARIOS = {
   T('同一搬运：动效开启时在飞，reduced-motion 下直接落定', withMotion === true && H.state.moving === false, [withMotion, H.state.moving]);
   T('…body 上的动效标记跟着 JS 分支走', H.state.motion === 'reduce' && H.state.reducedMotion === true, [H.state.motion, H.state.reducedMotion]);
   H.reducedMotionOn(false);
+
+  // 重开的复位必须连时钟上的动画状态一起清掉：飞行 0.19s、抖动 0.26s、闪光这里给 0.9s，
+  // 等 520ms 之后只剩闪光还挂着，此时重开若漏掉 flashUntil，画面就还在播上一局的彩带。
+  H.restart();
+  H.move(0, 2);
+  H.view.shakePeg(2);
+  H.view.flash(900);
+  await new Promise((r) => setTimeout(r, 520));
+  const onlyFlash = H.state.moving;
+  const flashBefore = Math.round(H.view.flashUntil * 1000);
+  H.restart();
+  T('重来把飞行、抖动、闪光一并归零（不只是把步数清掉）',
+    onlyFlash === true && H.state.moving === false && H.view.flashUntil === 0 && H.state.steps === 0,
+    [onlyFlash, H.state.moving, flashBefore, Math.round(H.view.flashUntil * 1000), H.state.steps]);
 
   const seenBefore = H.state.tutorialSeen;
   H.helpOpen(true);

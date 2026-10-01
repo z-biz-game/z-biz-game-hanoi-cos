@@ -402,7 +402,9 @@ el.full.addEventListener('click', () => {
     if (p && p.catch) p.catch(() => toast('浏览器拒绝退出全屏'));
     return;
   }
-  const target = el.stage || document.documentElement;
+  // 全屏对象是整张页面而不是那块画布：只把 #stage 撑满屏幕会把带数字与按钮的面板留在外面，
+  // 玩家就只剩 Esc 一条退路——HUD 上的「退出全屏」必须真的看得见才配叫退出。
+  const target = document.documentElement;
   if (!target.requestFullscreen) { toast('这台设备没有全屏 API'); return; }
   const p = target.requestFullscreen();
   // 请求被拒（老 WebView、被 iframe 策略挡住）不抛未捕获 rejection：控制台干净是红门槛。

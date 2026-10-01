@@ -576,6 +576,8 @@ export function createView(canvas, hooks = {}) {
       view.travel.clear();
       view.drag = null;
       view.shake = null;
+      // 闪光也是时钟上的状态：不关掉刚赢的那一下，重开后的第一帧还在播上一局的彩带。
+      view.flashUntil = 0;
       settle();
     },
     geom,
