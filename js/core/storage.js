@@ -6,6 +6,7 @@
 //
 // Save format (versioned, so a future change can migrate instead of silently mis-reading):
 //   { v: 1, best: { "lot-3p-4": 15 }, done: { ... }, daily: { "2026-09-27": 7 },
+//     settings: { muted, hintOn, tutorialSeen },
 //     stats: { plays, wins, certified, moves, seconds }, updatedAt }
 
 export const STORAGE_KEY = 'hanoi.save.v1';
@@ -16,9 +17,12 @@ const EMPTY = () => ({
   best: {},
   daily: {},
   unlocked: [],
+  settings: { muted: false, hintOn: true, tutorialSeen: false },
   stats: { plays: 0, wins: 0, certified: 0, moves: 0 },
   updatedAt: 0,
 });
+
+export const DEFAULT_SETTINGS = { ...EMPTY().settings };
 
 // Returns the backing store, or null when there is none / it throws. Kept as a function (not a
 // const) so a test can swap window.localStorage in after load.
@@ -46,6 +50,14 @@ function ints(raw) {
   return out;
 }
 
+// 设置只有三个布尔：把任意对象塞进 settings 会让"设置"变成一个无人可读的垃圾场。
+function bools(raw, dflt) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  for (const k of Object.keys(dflt)) out[k] = typeof src[k] === 'boolean' ? src[k] : dflt[k];
+  return out;
+}
+
 export function normalize(data) {
   const base = EMPTY();
   if (!data || typeof data !== 'object') return base;
@@ -56,6 +68,7 @@ export function normalize(data) {
     best: ints(data.best),
     daily: ints(data.daily),
     unlocked: Array.isArray(data.unlocked) ? data.unlocked.filter((x) => typeof x === 'string') : [],
+    settings: bools(data.settings, DEFAULT_SETTINGS),
     stats: {
       plays: num(stats.plays),
       wins: num(stats.wins),
@@ -66,14 +79,34 @@ export function normalize(data) {
   };
 }
 
+// 读写各点名一次 window.localStorage 的那两个方法（`store()` 已经把可用性探过了，这里
+// 拼全是有意为之：006 标准 §有存档 的口径是"读和写都在"，只 setItem 不 getItem 的仓重启即丢，
+// 而一层 `s.getItem` 的间接让这条尺子看不见它）。两个函数都不抛：隐私模式下 setItem 会 THROW。
+export function readRaw() {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    return window.localStorage.getItem(STORAGE_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+export function writeRaw(text) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return false;
+    window.localStorage.setItem(STORAGE_KEY, String(text));
+    return true;
+  } catch (e) {
+    return false; // private mode / quota exceeded: the game keeps running, it just forgets
+  }
+}
+
 // Never throws: a missing key, a truncated JSON string or garbage from an older build all come
 // back as the default save.
 export function load() {
-  const s = store();
-  if (!s) return EMPTY();
+  const raw = readRaw();
+  if (!raw) return EMPTY();
   try {
-    const raw = s.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY();
     return normalize(JSON.parse(raw));
   } catch (e) {
     return EMPTY();
@@ -82,16 +115,10 @@ export function load() {
 
 // Returns true only when the bytes really landed, so main.js can say "已保存" vs "仅本次会话".
 export function save(data) {
-  const s = store();
-  if (!s) return false;
-  try {
-    const clean = normalize(data);
-    clean.updatedAt = Date.now();
-    s.setItem(STORAGE_KEY, JSON.stringify(clean));
-    return true;
-  } catch (e) {
-    return false; // quota exceeded: keep playing in memory
-  }
+  if (!store()) return false;
+  const clean = normalize(data);
+  clean.updatedAt = Date.now();
+  return writeRaw(JSON.stringify(clean));
 }
 
 // Read-modify-write, and the `data` handed back is what the disk now holds (re-read, so the
@@ -126,6 +153,19 @@ export function recordResult(level, { moves, win, certified }) {
     }
     if (!data.unlocked.includes(key)) data.unlocked.push(key);
   });
+}
+
+// One setting at a time, and the value is coerced to a boolean here rather than at the call
+// site: a `setSetting('muted', event.shiftKey)` typo would otherwise land on disk as undefined
+// and read back as "not muted" forever.
+export function setSetting(key, value) {
+  return persist((data) => {
+    data.settings[key] = !!value;
+  });
+}
+
+export function settings(data = load()) {
+  return { ...data.settings };
 }
 
 export function bestOf(id, data = load()) {

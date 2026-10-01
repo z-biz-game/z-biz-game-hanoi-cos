@@ -4,8 +4,9 @@
 
 import { ok, eq, deepEq, notThrows, run, section } from '../tools/harness.mjs';
 import {
-  SAVE_VERSION, STORAGE_KEY, bestOf, doneList, dailyDone, levelKey, load, markDaily, normalize,
-  persist, recordResult, reset, save, selfTest, stats, store, unlockedIds,
+  DEFAULT_SETTINGS, SAVE_VERSION, STORAGE_KEY, bestOf, doneList, dailyDone, levelKey, load,
+  markDaily, normalize, persist, readRaw, recordResult, reset, save, selfTest, setSetting,
+  settings, stats, store, unlockedIds, writeRaw,
 } from '../js/core/storage.js';
 
 function fakeStorage({ throwOnWrite = false, throwOnRead = false, throwOnRemove = false } = {}) {
@@ -37,7 +38,9 @@ section('storage: no browser, no problem');
 {
   delete globalThis.window;
   eq(store(), null, 'with no window at all, store() is null rather than an exception');
-  deepEq(load(), { v: SAVE_VERSION, best: {}, daily: {}, unlocked: [], stats: { plays: 0, wins: 0, certified: 0, moves: 0 }, updatedAt: 0 }, 'load() hands back a default save');
+  deepEq(load(), { v: SAVE_VERSION, best: {}, daily: {}, unlocked: [], settings: { muted: false, hintOn: true, tutorialSeen: false }, stats: { plays: 0, wins: 0, certified: 0, moves: 0 }, updatedAt: 0 }, 'load() hands back a default save');
+  eq(readRaw(), null, 'readRaw() with no window says "nothing there", not "crash"');
+  eq(writeRaw('{}'), false, 'writeRaw() with no window reports failure instead of throwing');
   eq(save(load()), false, 'and save() reports it could not persist');
   eq(reset(), false, 'reset on a machine with no storage says so');
   deepEq(selfTest(), { ok: false, reason: 'unavailable' }, 'selfTest names the reason');
@@ -138,6 +141,27 @@ section('storage: reset really resets');
   deepEq(load(), normalize(null), 'and a fresh load is byte-for-byte a first visit');
   eq(bestOf('lot-3p-5'), null, 'no records survive');
   eq(unlockedIds().length, 0, 'no unlocks survive');
+}
+
+section('storage: settings survive a reload and refuse non-booleans');
+{
+  const s = install();
+  deepEq(load().settings, { muted: false, hintOn: true, tutorialSeen: false }, 'a first visit is unmuted, hints on, guide unseen');
+  ok(setSetting('muted', true).ok, 'the mute switch reaches the disk');
+  eq(load().settings.muted, true, 'and reads back as muted after a fresh load()');
+  eq(settings().muted, true, 'settings() is a copy, not the live object');
+  setSetting('hintOn', false);
+  eq(load().settings.hintOn, false, 'the second switch persists beside the first');
+  // 类型错与越界值：一条坏设置只丢那一条，好设置要留下
+  s.map.set(STORAGE_KEY, JSON.stringify({ v: SAVE_VERSION, settings: { muted: 'yes', hintOn: false, tutorialSeen: null }, best: { 'lot-3p-4': 15, 'lot-3p-5': 'x', 'lot-3p-6': -3, 'lot-3p-7': 21.5 } }));
+  const back = load();
+  eq(back.settings.muted, false, 'a string where a boolean belongs falls back to the default');
+  eq(back.settings.hintOn, false, 'a real boolean beside it is kept');
+  eq(back.settings.tutorialSeen, false, 'null is not a boolean either');
+  deepEq(back.best, { 'lot-3p-4': 15 }, '坏记录只丢那一条：字符串/负数/小数出局，15 这条好记录留着');
+  eq(JSON.parse(readRaw()).settings.muted, 'yes', 'readRaw() shows the untouched bytes still on disk');
+  ok(save(back), 'and re-writing the sanitised copy over them works');
+  eq(load().best['lot-3p-4'], 15, 'the repaired file reads back the same');
 }
 
 section('storage: persist() is the only mutator, and it round-trips');
