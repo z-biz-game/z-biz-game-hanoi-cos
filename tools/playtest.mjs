@@ -129,6 +129,71 @@ const SCENARIOS = {
   T('the hint line is live', document.getElementById('hintline').textContent.includes('提示'));
   T('the save line is present', document.getElementById('saveState').textContent.length > 0);
   T('the counter-proof line reached the panel', document.getElementById('counter').textContent.includes('strict 7'));
+
+  // ---- 商品化控制：这一批行验的是行为，不是字符串。命中区量的是布局后的盒子，暂停读的是
+  // view.clock 的累加值，静音读的是振荡器计数，减弱动效读的是 isMoving() 在同一步上的差别。
+  const boxes = [...document.querySelectorAll('.controls button'), ...document.querySelectorAll('.doors a')];
+  T('HUD 按钮与顶部门都要有 ≥44 CSS px 的命中高度', boxes.length >= 13 && boxes.every((b) => b.getBoundingClientRect().height >= 44),
+    boxes.map((b) => (b.id || b.textContent.slice(0, 4)) + ':' + Math.round(b.getBoundingClientRect().height)));
+  const iconHrefs = [...document.querySelectorAll('link[rel*="icon"]')].map((l) => l.href);
+  const iconOk = await Promise.all(iconHrefs.map((u) => fetch(u).then((r) => r.ok && (r.headers.get('content-type') || '').includes('png'), () => false)));
+  T('每个图标链接都取到真 PNG', iconOk.length >= 4 && iconOk.every(Boolean), [iconOk.length, iconOk]);
+  const og = document.querySelector('meta[property="og:image"]');
+  T('社交卡图在盘上且发得出去', !!og && await fetch(new URL(og.content, location.href).href).then((r) => r.ok, () => false), og && og.content);
+  T('离线壳把结论报到了面板上', /离线壳 (ready|installable|file|insecure|failed)/.test(H.state.pwa), H.state.pwa);
+  T('manifest 挂上了，安装按钮只在真有 prompt 时出现',
+    !!document.querySelector('link[rel="manifest"]') && H.state.installable === (H.state.pwa.includes('installable')), [H.state.pwa, H.state.installable]);
+
+  H.load('#/lot/lot-3p-4');
+  T('演示在 clock 上走：先让它动起来', H.demoStart() === true && H.state.demo === true);
+  H.pauseOn(true);
+  const pz = H.state;
+  await new Promise((r) => setTimeout(r, 600));
+  const pa = H.state;
+  T('暂停冻住累加器：clock 与步数一动不动', pa.clock === pz.clock && pa.steps === pz.steps, [pz.clock, pa.clock, pz.steps, pa.steps]);
+  T('…但出帧泵仍在跑，暂停不是把画面掐死', pa.frames > pz.frames, [pz.frames, pa.frames]);
+  T('…暂停中搬运一条都不结算', H.move(0, 2) === false && H.state.steps === pz.steps);
+  const pu = H.pauseOn(false);
+  await new Promise((r) => setTimeout(r, 400));
+  T('恢复后演示继续推进，状态没丢', H.state.clock > pu.clock && H.state.steps > pz.steps, [pu.clock, H.state.clock, pz.steps, H.state.steps]);
+  H.demoStop();
+
+  const m0 = H.muteOn(true);
+  const createdAt = m0.stats.created;
+  H.restart();
+  H.move(0, 2);
+  H.move(0, 1);
+  const m1 = H.muteOn(false);
+  T('静音期间一个振荡器都不新建', m1.stats.created === createdAt, [createdAt, m1.stats.created]);
+  T('…静音下的声音请求被如实计数', m1.stats.mutedPlays >= 2, m1.stats.mutedPlays);
+  T('…取消静音后走过建上下文这条路', m1.stats.created + m1.stats.blocked > 0, m1.stats);
+
+  H.restart();
+  H.reducedMotionOn(false);
+  H.move(0, 2);
+  const withMotion = H.state.moving;
+  H.restart();
+  H.reducedMotionOn(true);
+  H.move(0, 2);
+  T('同一搬运：动效开启时在飞，reduced-motion 下直接落定', withMotion === true && H.state.moving === false, [withMotion, H.state.moving]);
+  T('…body 上的动效标记跟着 JS 分支走', H.state.motion === 'reduce' && H.state.reducedMotion === true, [H.state.motion, H.state.reducedMotion]);
+  H.reducedMotionOn(false);
+
+  const seenBefore = H.state.tutorialSeen;
+  H.helpOpen(true);
+  const sheet = document.getElementById('helpCurtain');
+  T('玩法说明真展开，且键位表写满了', !sheet.hidden && sheet.querySelectorAll('table.keys tr').length >= 9, sheet.querySelectorAll('table.keys tr').length);
+  H.press('Escape');
+  T('Esc 关掉说明并把"已读过"写进存档', H.state.helpOpen === false && H.state.tutorialSeen === true, [seenBefore, H.state.tutorialSeen]);
+  T('…存档里的 settings 块只有布尔', (() => {
+    const s = H.save().settings || {};
+    return Object.keys(s).length === 3 && Object.values(s).every((v) => typeof v === 'boolean');
+  })(), H.save().settings);
+  T('键盘覆盖 P/M/F：按下去状态真的翻', (() => {
+    H.press('m'); const a = H.state.muted; H.press('m'); const b = H.state.muted;
+    H.press('p'); const c = H.state.paused; H.press('p');
+    return a !== b && c === true && H.state.paused === false;
+  })(), null);
 ${POSTLUDE}`,
 
   '@play': `${PRELUDE}
@@ -331,7 +396,10 @@ async function pointerScenario(cdp, sessionId, runJS, waitShell) {
   // straddle it. Rows that compare two fingerprints come through here first.
   const quiet = async (ms = 3000) => runJS(`(async () => {
     const v = window.hanoi.view, t0 = Date.now();
-    const moving = () => v.travel.size > 0 || !!v.drag || !!v.shake || performance.now() < v.flashUntil;
+    // Ask the view, in its own time base. flashUntil now lives on view.clock (seconds of pumped
+    // frames), so reading it against performance.now() would report "still flashing" forever:
+    // every fingerprint row here would then sample 3 s of dead air instead of a settled board.
+    const moving = () => v.isMoving();
     while (moving() && Date.now() - t0 < ${ms}) await new Promise((r) => setTimeout(r, 20));
     return { moving: moving(), waited: Date.now() - t0 };
   })()`);

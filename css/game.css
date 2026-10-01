@@ -145,6 +145,16 @@ canvas#board:active { cursor: grabbing; }
 .proof { font-size: 11.5px; color: var(--ink-dim); margin: 8px 0 12px; }
 
 .controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.controls.second { margin-top: 6px; }
+.paused {
+  margin-top: 10px;
+  border: 1px solid var(--brass);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--brass);
+  animation: card-in 160ms ease-out both;
+}
 button {
   font: inherit;
   font-size: 13px;
@@ -223,6 +233,26 @@ ul.lots li span { color: var(--ink-dim); }
 .cardrow b { color: var(--ink-dim); font-weight: 500; }
 .cardfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
+/* 首次展开的卡片在窄屏上要能滚动：说明写满了 9 行键位，裁掉就等于没写。 */
+.card.howto { width: min(560px, 100%); max-height: min(80vh, 620px); overflow-y: auto; }
+.howbody { font-size: 13px; line-height: 1.6; color: var(--ink); }
+.howbody h3 { margin: 14px 0 4px; font-size: 13.5px; color: var(--brass); letter-spacing: 0.04em; }
+.howbody h3:first-child { margin-top: 0; }
+.howbody p, .howbody ul { margin: 0; }
+.howbody ul { padding-left: 18px; display: grid; gap: 5px; }
+.howbody .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--teal); }
+table.keys { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+table.keys td { padding: 4px 6px; border-bottom: 1px dashed #262c38; }
+table.keys td:first-child { width: 128px; color: var(--ink-dim); white-space: nowrap; }
+
+/* 卡片入场是这套界面唯一的 CSS 动效。reduced-motion 要关掉它，就得先真的有一条 180ms 的
+   keyframes —— 上一版这里只写 `transition: none`，而 .toast 根本没有 transition，那条是个空转。 */
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+.card { animation: card-in 180ms ease-out both; }
+
 .toast {
   position: fixed;
   left: 50%;
@@ -245,7 +275,12 @@ body[data-mode="index"] #routeBox { display: none; }
   h1 { font-size: 22px; }
 }
 
+/* reduced-motion 走两条真分支：CSS 侧关掉卡片入场，JS 侧读 matchMedia 把 view.clock 上的
+   飞行/抖动/闪光时长一并置 0（js/view.js 的 view.reducedMotion）。body[data-motion="reduce"]
+   是 JS 那条的可见投影，两者指向同一个"不动"的状态。 */
 @media (prefers-reduced-motion: reduce) {
   canvas#board { cursor: crosshair; }
-  .toast { transition: none; }
+  .card, .paused { animation: none; }
 }
+body[data-motion="reduce"] .card,
+body[data-motion="reduce"] .paused { animation: none; }

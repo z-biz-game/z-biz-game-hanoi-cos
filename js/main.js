@@ -15,7 +15,7 @@ import {
   randomLevel, rowList, stats as tableStats,
 } from './core/library.js';
 import { EXHAUST_LIMIT, TABLE_BUDGET, FS_RANGE, closedForm3, closedFormLine, fsPar, stateCount } from './core/solve.js';
-import { bestOf, dailyDone, doneList, load as loadSave, markDaily, recordResult, reset as wipeSave, selfTest, stats as saveStats, unlockedIds } from './core/storage.js';
+import { bestOf, dailyDone, doneList, load as loadSave, markDaily, recordResult, reset as wipeSave, selfTest, setSetting, settings as readSettings, stats as saveStats, unlockedIds } from './core/storage.js';
 import { todayKey } from './core/rng.js';
 // BANDS, not TIERS: TIERS is the four *free* difficulty bands the daily and random generators
 // partition, and make.dailyLevel hashes a date into `hash % TIERS.length` — adding 线柱 there would
@@ -23,12 +23,13 @@ import { todayKey } from './core/rng.js';
 // what a route or a label has to be looked up in, or `#/random/line/…` falls back to shoal and the
 // board mislabels itself.
 import { BANDS } from './core/make.js';
-import { createView } from './view.js';
+import { DEMO_STEP_S, createView } from './view.js';
+import { createSfx } from './audio.js';
 import { setupPwa } from './pwa.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {};
-for (const id of ['board', 'stage', 'lotId', 'band', 'shape', 'steps', 'left', 'over', 'par', 'space', 'ways', 'proof', 'best', 'unlocked', 'hintline', 'undo', 'hint', 'restart', 'demo', 'hintToggle', 'curtain', 'card', 'cardTitle', 'cardBody', 'cardNext', 'close', 'index', 'indexList', 'toast', 'reset', 'saveState', 'today', 'cap', 'counter', 'routeBox', 'pwaState']) {
+for (const id of ['board', 'stage', 'lotId', 'band', 'shape', 'steps', 'left', 'over', 'par', 'space', 'ways', 'proof', 'best', 'unlocked', 'hintline', 'undo', 'hint', 'restart', 'demo', 'demoLabel', 'hintToggle', 'pause', 'pauseLabel', 'mute', 'muteLabel', 'full', 'fullLabel', 'help', 'pausedBanner', 'curtain', 'card', 'cardTitle', 'cardBody', 'cardNext', 'close', 'helpCurtain', 'helpClose', 'index', 'indexList', 'toast', 'reset', 'saveState', 'today', 'cap', 'counter', 'routeBox', 'pwaState', 'install']) {
   el[id] = $(id);
 }
 
@@ -40,9 +41,12 @@ const app = {
   hints: 0,
   index: -1,
   toastTimer: 0,
-  demoTimer: 0,
   wipeArmed: false,
   lastRecord: null,
+  sfx: createSfx(),
+  demo: { on: false, acc: 0, unsub: null },
+  pwa: null,
+  installable: false,
 };
 
 const view = createView(el.board, {
@@ -58,11 +62,18 @@ const view = createView(el.board, {
   refuse: (info) => {
     if (!app.game || !info) return null;
     app.game.refused++;
-    return info.reason === 'nothing to lift'
-      ? `${PEG_NAMES[info.peg]} 柱是空的，没有盘可拿`
-      : refusalReason(info.from, info.to);
+    sfx('refuse');
+    if (info.reason === 'nothing to lift') return `${PEG_NAMES[info.peg]} 柱是空的，没有盘可拿`;
+    // 'shaft' 和空柱是两件事：柱上有盘，只是按下点没落进任何一片的命中带。说成"空的"会把玩家
+    // 推去按同一个位置的第二次、第三次。
+    if (info.reason === 'shaft') return `${PEG_NAMES[info.peg]} 柱上没有对准盘：按在最上面那片的 44px 命中带里`;
+    return refusalReason(info.from, info.to);
   },
-  hint: () => (app.demoTimer ? null : nextMove(app.game)),
+  // 拿起一盘的声音归手势，不归结算：拖动还没被规则认可时玩家也该听见"手里有东西了"。
+  lift: () => sfx('lift'),
+  hint: () => (app.demo.on ? null : nextMove(app.game)),
+  // 暂停期按盘面：搬运一条都不该发生（view 在 down() 第一行就返回了），但得告诉玩家为什么没反应。
+  'paused-input': () => { toast('已暂停：按 P 或点「继续」再搬盘'); return null; },
 });
 
 // Read from the canvas, not retyped: a toast and the board must never name the same peg apart.
@@ -73,6 +84,12 @@ function toast(msg) {
   el.toast.hidden = false;
   clearTimeout(app.toastTimer);
   app.toastTimer = setTimeout(() => { el.toast.hidden = true; }, 2200);
+}
+
+// 声音只有这一道门。静音时 js/audio.js 的 play() 在建任何振荡器之前就返回 false —— 「把增益
+// 设为 0」那种假静音在这里过不了 test 之外的眼睛，所以它连节点都不建，计数留给 stats.mutedPlays。
+function sfx(kind) {
+  return app.sfx.play(kind);
 }
 
 // ---- routing --------------------------------------------------------------------------------
@@ -113,7 +130,9 @@ function apply() {
   // A new chart is a new board, and the card the last one finished with must not stay over it:
   // .curtain is fixed, inset:0, z-index:30, so a card left up makes the fresh board unclickable —
   // which is exactly what the automated finger hit when it loaded lot-4p-5 out of a finished tower.
+  // The 玩法说明 veil is the same class of bug with the same fix, so it goes up with the card.
   el.curtain.hidden = true;
+  el.helpCurtain.hidden = true;
   if (route.mode === 'index') {
     app.mode = 'index';
     app.level = null;
@@ -160,16 +179,22 @@ function refusalReason(from, to) {
 
 function commit(from, to, via = 'pointer') {
   if (!app.game || app.game.done) return false;
+  // 暂停冻住的必须是两条门：画布在 down() 里就不接了，键盘与测试钩子走的是这里，否则暂停中
+  // 按 R/拖钩子照样能改账本，那暂停就是个装饰。
+  if (view.paused) { toast('已暂停：按 P 继续后再搬盘'); return false; }
   const ok = moveTop(app.game, from, to);
   if (!ok) {
     view.shakePeg(from);
+    sfx('refuse');
     toast(refusalReason(from, to));
     render();
     return false;
   }
   const mv = app.game.history[app.game.history.length - 1];
-  view.travel.set(mv.disk, { from: mv.from, to: mv.to, t0: performance.now() });
-  view.settle();
+  // t0 记在 view.clock 上，不记在墙上：暂停要把飞行冻住，30Hz 与 120Hz 要在同一步虚拟时长后
+  // 画出同一张图，这两件事都只有"动画和累加器同一条时间轴"才成立。
+  view.arm(mv.disk, mv.from, mv.to);
+  sfx('drop');
   if (via === 'hint') app.hints++;
   if (app.game.done) onFinish();
   render();
@@ -213,6 +238,7 @@ function onFinish() {
   el.cardNext.hidden = !(next && next.id !== app.level.id);
   if (next && next.id !== app.level.id) el.cardNext.dataset.href = `#/lot/${next.id}`;
   el.curtain.hidden = false;
+  sfx(certified ? 'fanfare' : 'win');
   view.flash(420);
 }
 
@@ -293,9 +319,12 @@ function renderIndex() {
 }
 
 // ---- controls -------------------------------------------------------------------------------
+// 暂停冻住的是 view.clock 的累加，不是一个布尔装饰：演示、飞行、抖动、闪光全部读同一条时间轴，
+// 所以一起停；撤销与重来是玩家主动命令，允许在暂停里执行（它们把画面 snap 回静态，不会补画历史）。
 el.undo.addEventListener('click', () => {
   if (!app.game) return;
   undo(app.game);
+  sfx('ui');
   view.snap();
   render();
 });
@@ -307,6 +336,7 @@ el.hint.addEventListener('click', () => {
     return;
   }
   app.hints++;
+  sfx('ui');
   view.showHint(true);
   txt(el.hintline, `提示：第 ${mv.disk + 1} 号盘 ${PEG_NAMES[mv.from]} → ${PEG_NAMES[mv.to]}`);
   toast('已高亮一步（未代走）');
@@ -315,6 +345,7 @@ el.restart.addEventListener('click', () => {
   if (!app.game) return;
   resetGame(app.game);
   el.curtain.hidden = true;
+  sfx('ui');
   view.snap();
   render();
 });
@@ -322,29 +353,123 @@ el.close.addEventListener('click', () => { el.curtain.hidden = true; });
 el.cardNext.addEventListener('click', () => { go(el.cardNext.dataset.href); });
 el.hintToggle.addEventListener('click', () => {
   view.showHint(!view.hintOn);
+  setSetting('hintOn', view.hintOn);
   el.hintToggle.setAttribute('aria-pressed', String(view.hintOn));
   txt(el.hintToggle, view.hintOn ? '提示高亮：开' : '提示高亮：关');
+  sfx('ui');
 });
+
+// ---- pause / mute / fullscreen / 玩法说明 ---------------------------------------------------
+// 暂停冻住的是 view.clock 的累加（js/view.js 的 tick），不是一个布尔装饰：飞行、抖动、闪光、
+// 演示读同一条时间轴，所以一起停。按钮只翻标签和 aria-pressed，状态本身向 view 要。
+function applyPaused() {
+  const now = !!view.paused;
+  el.pause.setAttribute('aria-pressed', String(now));
+  txt(el.pauseLabel, now ? '继续' : '暂停');
+  el.pausedBanner.hidden = !now;
+  document.body.dataset.paused = now ? 'on' : 'off';
+  return now;
+}
+el.pause.addEventListener('click', () => {
+  view.pause(!view.paused);
+  applyPaused();
+  sfx('ui');
+});
+
+function applyMuted(on) {
+  const now = !!app.sfx.setMuted(on);
+  el.mute.setAttribute('aria-pressed', String(now));
+  txt(el.muteLabel, now ? '已静音' : '静音：关');
+  setSetting('muted', now);
+  return now;
+}
+el.mute.addEventListener('click', () => {
+  const now = applyMuted(!app.sfx.muted);
+  // 取消静音才建上下文；静音状态下 AudioContext 连存在都不必，建了又被 autoplay 策略挂起来。
+  if (!now && app.sfx.unlock()) sfx('ui');
+});
+
+function applyFullscreen() {
+  const on = !!document.fullscreenElement;
+  el.full.setAttribute('aria-pressed', String(on));
+  txt(el.fullLabel, on ? '退出全屏' : '全屏');
+}
+// 全屏绑在这个 HUD 上真实存在的 #full 按钮上：Chrome 只允许在用户手势里请求，所以它就是唯一入口。
+el.full.addEventListener('click', () => {
+  sfx('ui');
+  if (document.fullscreenElement) {
+    const p = document.exitFullscreen && document.exitFullscreen();
+    if (p && p.catch) p.catch(() => toast('浏览器拒绝退出全屏'));
+    return;
+  }
+  const target = el.stage || document.documentElement;
+  if (!target.requestFullscreen) { toast('这台设备没有全屏 API'); return; }
+  const p = target.requestFullscreen();
+  // 请求被拒（老 WebView、被 iframe 策略挡住）不抛未捕获 rejection：控制台干净是红门槛。
+  if (p && p.catch) p.catch(() => toast('浏览器拒绝了全屏请求'));
+});
+document.addEventListener('fullscreenchange', applyFullscreen);
+
+function openHelp(on) {
+  el.helpCurtain.hidden = !on;
+  if (on) {
+    setSetting('tutorialSeen', true);
+    applyHelpNudge();
+    sfx('ui');
+  }
+}
+el.help.addEventListener('click', () => openHelp(el.helpCurtain.hidden));
+el.helpClose.addEventListener('click', () => {
+  el.helpCurtain.hidden = true;
+  sfx('ui');
+});
+
 el.demo.addEventListener('click', () => {
-  if (app.demoTimer) { stopDemo('演示已停止'); return; }
-  if (!app.game || app.game.done) return;
-  el.demo.textContent = '停止演示';
-  app.demoTimer = setInterval(() => {
-    const mv = nextMove(app.game);
-    if (!mv) { stopDemo('这条路浏览器不认，演示停在认证范围外'); return; }
-    commit(mv.from, mv.to, 'hint');
-    if (app.game.done) stopDemo('演示完成：步数与已证下界一致');
-  }, 260);
-  toast('演示：按认证路线走');
+  if (app.demo.on) { stopDemo('演示已停止'); return; }
+  startDemo();
 });
+function startDemo() {
+  if (!app.game || app.game.done) return false;
+  if (view.paused) { toast('已暂停：继续后才能自动演示'); return false; }
+  app.demo.on = true;
+  app.demo.acc = 0;
+  txt(el.demoLabel, '停止演示');
+  el.demo.setAttribute('aria-pressed', 'true');
+  // 演示走的是帧回调，累加 view.clock 的 dt：暂停即冻住，30/60/120Hz 下每 DEMO_STEP_S 秒虚拟
+  // 时长走一步，与墙钟 setInterval 不同 —— 后者在暂停时照样推进、掉帧时还会补走好几步。
+  view.keepPumping(true);
+  app.demo.unsub = view.onFrame((dt) => {
+    app.demo.acc += dt;
+    while (app.demo.acc >= DEMO_STEP_S) {
+      app.demo.acc -= DEMO_STEP_S;
+      const mv = nextMove(app.game);
+      if (!mv) { stopDemo('这条路浏览器不认，演示停在认证范围外'); return; }
+      commit(mv.from, mv.to, 'hint');
+      if (app.game.done) { stopDemo('演示完成：步数与已证下界一致'); return; }
+    }
+    return undefined;
+  });
+  toast('演示：按认证路线走');
+  return true;
+}
 function stopDemo(msg) {
-  if (app.demoTimer) clearInterval(app.demoTimer);
-  app.demoTimer = 0;
+  app.demo.on = false;
+  if (app.demo.unsub) app.demo.unsub();
+  app.demo.unsub = null;
+  app.demo.acc = 0;
+  view.keepPumping(false);
   el.demo.textContent = '自动演示';
+  el.demo.setAttribute('aria-pressed', 'false');
   if (msg) toast(msg);
   render();
 }
 app.demoStop = stopDemo;
+
+el.install.addEventListener('click', () => {
+  sfx('ui');
+  const p = app.pwa && app.pwa.promptInstall();
+  if (p && p.then) p.then((ok) => { if (!ok) toast('安装请求没被接受'); });
+});
 
 el.reset.addEventListener('click', () => {
   if (!app.wipeArmed) {
@@ -365,23 +490,85 @@ el.reset.addEventListener('click', () => {
 
 window.addEventListener('hashchange', apply);
 window.addEventListener('resize', () => view.measure());
+
+// 键位。有卡片挡在前面时 Enter/Space/Esc 只关卡片（"开始"），不会同时把暂停翻一遍；焦点在按钮
+// 或链接上时让浏览器的默认 click 走，否则空格会被读成两次动作。
+const KEY_HINTS = {
+  u: 'undo', h: 'hint', r: 'restart', d: 'demo', p: 'pause', m: 'mute', f: 'full',
+};
 window.addEventListener('keydown', (ev) => {
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
-  const k = ev.key.toLowerCase();
-  if (k === 'escape' && !el.curtain.hidden) el.curtain.hidden = true;
-  else if (k === 'u') el.undo.click();
-  else if (k === 'h') el.hint.click();
-  else if (k === 'r') el.restart.click();
-  else if (k === 'd') el.demo.click();
+  const k = String(ev.key || '').toLowerCase();
+  const veilUp = !el.curtain.hidden || !el.helpCurtain.hidden;
+  const onControl = /^(button|a|input|textarea|select)$/i.test((ev.target && ev.target.tagName) || '');
+  if (k === 'escape') {
+    if (veilUp) { el.curtain.hidden = true; el.helpCurtain.hidden = true; }
+    return;
+  }
+  if (k === 'enter' || k === ' ') {
+    if (veilUp) {
+      ev.preventDefault();
+      el.curtain.hidden = true;
+      el.helpCurtain.hidden = true;   // 空格就是"开始搬盘"，不必先用手指去点关闭
+      return;
+    }
+    if (onControl) return;            // 焦点在按钮上：让默认 click 处理
+    ev.preventDefault();
+    el.pause.click();                 // P 与 Space 同义，暂停是这里唯一的全局动作
+    return;
+  }
+  if (k === '?' || (k === '/' && ev.shiftKey) || k === 'f1') { openHelp(el.helpCurtain.hidden); return; }
+  const which = KEY_HINTS[k];
+  if (!which) return;
+  el[which].click();
 });
 
+// prefers-reduced-motion 的 JS 分支：CSS 那条只管卡片入场，画布上的飞行/抖动/闪光得由这里
+// 把 view 的动画时长一并置 0（js/view.js 的 view.reducedMotion 与 setReducedMotion）。
+const RM = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+function applyReducedMotion(on) {
+  view.setReducedMotion(!!on);
+  document.body.dataset.motion = view.reducedMotion ? 'reduce' : 'full';
+  return view.reducedMotion;
+}
+applyReducedMotion(RM ? RM.matches : false);
+if (RM) {
+  const onChange = () => applyReducedMotion(RM.matches);
+  if (typeof RM.addEventListener === 'function') RM.addEventListener('change', onChange);
+  else if (typeof RM.addListener === 'function') RM.addListener(onChange);
+}
+
+// 设置项从存档里回来，但不回写：开机就 setSetting 会把"读了什么"变成"改了什么"。
+function applyLoadedSettings() {
+  const s = readSettings(loadSave());
+  app.sfx.setMuted(s.muted);
+  el.mute.setAttribute('aria-pressed', String(app.sfx.muted));
+  txt(el.muteLabel, app.sfx.muted ? '已静音' : '静音：关');
+  view.showHint(s.hintOn);
+  el.hintToggle.setAttribute('aria-pressed', String(view.hintOn));
+  txt(el.hintToggle, view.hintOn ? '提示高亮：开' : '提示高亮：关');
+  el.help.dataset.seen = String(s.tutorialSeen);
+  return s;
+}
+
+function applyHelpNudge() {
+  el.help.dataset.seen = String(readSettings(loadSave()).tutorialSeen);
+}
+
 view.measure();
+const bootSettings = applyLoadedSettings();
 apply();
+applyPaused();
+applyFullscreen();
+if (!bootSettings.tutorialSeen) toast('第一次玩？按 ? 或点「玩法说明」：规则、命中带和键位都在里面');
 
 // 离线壳：注册结果写进面板，不写进 console（本仓的验收线把控制台干净算作红）。
 // 放在 apply() 之后 —— 注册快慢与题面无关，一个装不上的 SW 不该让第一张塔晚到。
-const pwa = setupPwa(({ status, detail }) => {
+app.pwa = setupPwa(({ status, detail }) => {
   txt(el.pwaState, `离线壳 ${status}${detail ? ` · ${detail}` : ''}`);
+  // 安装按钮只在浏览器真的发出过 beforeinstallprompt 后出现：没有 prompt 时按下不会有任何事发生，
+  // 摆一个不反应的按钮比不摆更糟。iOS 那条路（手动"添加到主屏幕"）由 pwaState 的文案说明。
+  el.install.hidden = status !== 'installable';
 });
 
 // ---- the test hook --------------------------------------------------------------------------
@@ -415,7 +602,21 @@ window.hanoi = {
       grade: g && g.done ? grade(g).key : null,
       curtain: !el.curtain.hidden,
       cardTitle: el.cardTitle.textContent,
-      demo: !!app.demoTimer,
+      demo: app.demo.on,
+      // 暂停、时钟与动效：帧率对拍和 @boot 的暂停断言读的是这五个字段，读的是 view 的真状态而不是
+      // 按钮标签 —— 标签会骗人，累加器不会。
+      paused: !!view.paused,
+      clock: view.clock,
+      moving: view.isMoving(),
+      reducedMotion: !!view.reducedMotion,
+      motion: document.body.dataset.motion || 'full',
+      muted: !!app.sfx.muted,
+      audio: { ...app.sfx.stats, state: app.sfx.state },
+      helpOpen: !el.helpCurtain.hidden,
+      tutorialSeen: readSettings(loadSave()).tutorialSeen,
+      fullscreen: !!document.fullscreenElement,
+      pwa: el.pwaState.textContent,
+      installable: !el.install.hidden,
       best: lv ? bestOf(lv.id, loadSave()) : null,
       painted: view.painted,
       frames: view.frames,
@@ -461,8 +662,29 @@ window.hanoi = {
   hintOnce() { el.hint.click(); return { hints: app.hints, line: el.hintline.textContent }; },
   undoOnce() { el.undo.click(); return app.game ? app.game.moves : -1; },
   restart() { el.restart.click(); return app.game ? app.game.moves : -1; },
-  demoStart() { el.demo.click(); return !!app.demoTimer; },
-  demoStop() { stopDemo(''); return app.demoTimer === 0; },
+  demoStart() { el.demo.click(); return app.demo.on; },
+  demoStop() { stopDemo(''); return app.demo.on === false; },
+  // 暂停与静音的测试入口：走按钮，不走内部函数，于是断言覆盖的是玩家真的那条路。
+  pauseOn(on) {
+    if (typeof on === 'boolean') { if (view.paused !== on) el.pause.click(); }
+    else el.pause.click();
+    return { paused: !!view.paused, clock: view.clock, frames: view.frames };
+  },
+  muteOn(on) {
+    if (typeof on === 'boolean') { if (!!app.sfx.muted !== on) el.mute.click(); }
+    else el.mute.click();
+    return { muted: !!app.sfx.muted, stats: { ...app.sfx.stats } };
+  },
+  reducedMotionOn(on) {
+    applyReducedMotion(typeof on === 'boolean' ? on : !view.reducedMotion);
+    return { reducedMotion: !!view.reducedMotion, motion: document.body.dataset.motion };
+  },
+  helpOpen(on) { openHelp(typeof on === 'boolean' ? on : el.helpCurtain.hidden); return !el.helpCurtain.hidden; },
+  press(key) {
+    const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    return { defaultPrevented: ev.defaultPrevented, paused: !!view.paused, steps: app.game ? app.game.moves : -1 };
+  },
   closeCard() { el.curtain.hidden = true; return el.curtain.hidden; },
   pixels() { return view.pixels(); },
   painted() { return view.painted; },

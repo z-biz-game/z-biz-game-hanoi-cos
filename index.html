@@ -72,12 +72,20 @@
         <button id="undo" type="button" disabled>撤销 <kbd>U</kbd></button>
         <button id="hint" type="button">提示 <kbd>H</kbd></button>
         <button id="restart" type="button">重来 <kbd>R</kbd></button>
-        <button id="demo" type="button">自动演示 <kbd>D</kbd></button>
+        <button id="demo" type="button" aria-pressed="false"><span id="demoLabel">自动演示</span> <kbd>D</kbd></button>
         <button id="hintToggle" type="button" aria-pressed="true">提示高亮：开</button>
       </div>
+      <div class="controls second">
+        <button id="pause" type="button" aria-pressed="false"><span id="pauseLabel">暂停</span> <kbd>P</kbd></button>
+        <button id="mute" type="button" aria-pressed="false"><span id="muteLabel">静音：关</span> <kbd>M</kbd></button>
+        <button id="full" type="button" aria-pressed="false"><span id="fullLabel">全屏</span> <kbd>F</kbd></button>
+        <button id="help" type="button">玩法说明 <kbd>?</kbd></button>
+      </div>
+      <div class="paused" id="pausedBanner" hidden>已暂停：仿真与时钟一起冻住，按 <kbd>P</kbd> 继续</div>
       <div class="save">
         <span id="saveState">存档检查中…</span>
         <span id="pwaState" class="muted">离线壳检查中…</span>
+        <button id="install" type="button" hidden>装到桌面</button>
         <span class="muted">今日 <b id="today">—</b></span>
         <button id="reset" type="button">清空存档</button>
       </div>
@@ -100,6 +108,43 @@
     <div class="cardfoot">
       <button id="close" type="button">继续看塔</button>
       <button id="cardNext" type="button">下一张 LOT →</button>
+    </div>
+  </div>
+</div>
+
+<!-- 玩法说明：规则、命中口径、键位都写在这里，且每条都能在 js/core/game.js 里指回实现。
+     第一次打开（tutorialSeen 为 false）会自动展开，读完关掉就写进存档，不再重复打扰。 -->
+<div class="curtain" id="helpCurtain" hidden>
+  <div class="card howto" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <h2 id="helpTitle">玩法说明</h2>
+    <div class="howbody">
+      <h3>目标</h3>
+      <p>把甲柱上从大到小叠好的整摞盘搬到最后一根柱上，一次只能拿一根柱最上面的一个盘，任何时刻大盘都不能压在小盘上。</p>
+      <h3>怎么下手</h3>
+      <ul>
+        <li><b>拖动</b>：按住一个盘拖到另一根柱。按下的落点在盘的上下 <span class="mono">44px</span> 命中带内就算抓住，手指比画布小也按得中。</li>
+        <li><b>点两下</b>：先点源柱（拿起顶盘），再点目标柱（放下）。触屏走的就是这条。</li>
+        <li><b>不合规则的一步</b>：源柱会抖一下，并告诉你违犯了哪半条规则 —— 是"大盘压小盘"还是"线柱不许跳柱"，这两件事要分开学。</li>
+      </ul>
+      <h3>线柱带（rule = line）</h3>
+      <p>柱子排成一条线，只能移到<b>相邻</b>的柱上。这条规则改变的是下界：三柱自由塔是 2<sup>n</sup>−1，线柱是 3<sup>n</sup>−1。目录页每张 LOT 的最少步数都是穷尽 BFS 量出来的，不是公式套的。</p>
+      <h3>评级</h3>
+      <p>步数等于下界＝<b>认证解</b>；多走了也算通关，但卡片会写明"未达已证下界"和超了几步。</p>
+      <h3>键位</h3>
+      <table class="keys">
+        <tr><td><kbd>Enter</kbd> / <kbd>Space</kbd></td><td>开始（关掉当前卡片）</td></tr>
+        <tr><td><kbd>U</kbd></td><td>撤销一步</td></tr>
+        <tr><td><kbd>H</kbd></td><td>高亮认证路线的下一步（不代走）</td></tr>
+        <tr><td><kbd>R</kbd></td><td>重开本局</td></tr>
+        <tr><td><kbd>D</kbd></td><td>自动演示开 / 停</td></tr>
+        <tr><td><kbd>P</kbd></td><td>暂停 / 继续（冻住的是帧时钟累加器）</td></tr>
+        <tr><td><kbd>M</kbd></td><td>静音 / 取消静音</td></tr>
+        <tr><td><kbd>F</kbd></td><td>全屏</td></tr>
+        <tr><td><kbd>?</kbd> / <kbd>Esc</kbd></td><td>开 / 关本页</td></tr>
+      </table>
+    </div>
+    <div class="cardfoot">
+      <button id="helpClose" type="button">开始搬盘</button>
     </div>
   </div>
 </div>
