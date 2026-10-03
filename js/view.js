@@ -22,6 +22,15 @@ export function createView(canvas, hooks = {}) {
   // fingerprint a frame, and without this hint Chrome books it as a GPU→CPU copy per call and
   // prints a console warning — and a dirty console is a red gate (tools/verify.sh).
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  // ---- 减弱动效（prefers-reduced-motion）----
+  // 本仓 css/game.css 里已经有一段 @media (prefers-reduced-motion: reduce)（.toast 的
+  // transition），但那管不到 canvas：被拒的一步让柱子在
+  // Math.sin((now - t0) / 22) * 3 的衰减里左右摆 3px，纯装饰，CSS 一点都拦不住。
+  // 判据：拒绝本来就有 toast(refusalReason(...)) 那句人话读数（"大盘不能压小盘：…柱顶是
+  // 第 N 号盘"），摆动是叠在读数上的装饰，归零位移不损失信息。
+  // **柱子本身照旧照常画** —— 柱子是棋盘，不是反馈的一部分，动不得。
+  let reduceMotion = false;
   const view = {
     game: null,
     painted: false,
@@ -200,7 +209,7 @@ export function createView(canvas, hooks = {}) {
 
     for (let p = 0; p < g.pegs; p++) {
       const cx = g.center(p);
-      const shake = view.shake && view.shake.peg === p ? Math.sin((now - view.shake.t0) / 22) * 3 * Math.max(0, 1 - (now - view.shake.t0) / 260) : 0;
+      const shake = view.shake && view.shake.peg === p && !reduceMotion ? Math.sin((now - view.shake.t0) / 22) * 3 * Math.max(0, 1 - (now - view.shake.t0) / 260) : 0;
       ctx.save();
       ctx.translate(shake, 0);
       const post = ctx.createLinearGradient(cx - 6, 0, cx + 6, 0);
@@ -401,6 +410,16 @@ export function createView(canvas, hooks = {}) {
       view.flashUntil = performance.now() + ms;
       settle();
     },
+    // The gate the runtime pref flip lands on: idempotent, and settles so a peg stops mid-swing
+    // on the frame the setting changes rather than at the end of the 260ms decay.
+    setReduceMotion(v) {
+      const on = !!v;
+      if (on === reduceMotion) return reduceMotion;
+      reduceMotion = on;
+      if (reduceMotion) settle();
+      return reduceMotion;
+    },
+    isReducedMotion: () => reduceMotion,
     shakePeg(peg) {
       view.shake = { peg, t0: performance.now() };
       settle();
