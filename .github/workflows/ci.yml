@@ -29,6 +29,11 @@ jobs:
         run: for f in js/*.js js/*/*.js server.cjs electron/main.cjs tools/*.mjs test/*.mjs; do node --check "$f"; done
       - name: Bake is reproducible
         run: node tools/bake.mjs --check
+      # Icons, textures, the og card and sw.js are declared by index.html / the manifest / js. If a
+      # path is named but not on disk the page 404s behind its own references, so the tree is asked
+      # here — before the Pages artifact is even a thought.
+      - name: Declared asset paths exist
+        run: node tools/ship_check.mjs
       - name: Suites
         run: for f in test/*.test.mjs; do echo "::group::$f"; node "$f"; echo "::endgroup::"; done
 

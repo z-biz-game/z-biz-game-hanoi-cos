@@ -25,11 +25,21 @@ jobs:
       # tools/bake.mjs and committed on purpose: it is the measured table the game reads, and the
       # deepest search (3^13 = 1,594,323 positions) happens at build time, not on the visitor's
       # first click.
+      #
+      # manifest.webmanifest, sw.js and assets/ travel with index.html or the page 404s behind
+      # every one of its own references: no manifest means not installable, no sw.js means the
+      # registration js/pwa.js makes rejects, no assets means every declared icon and the og card
+      # is a broken image. None of that is visible to a check that reads the git tree — the files
+      # are all there — so the legs below and the step after them are the only place it is asked.
       - name: Assemble static site
         run: |
           mkdir _site
-          cp index.html _site/
-          cp -r css js _site/
+          cp index.html manifest.webmanifest sw.js _site/
+          cp -r css js assets _site/
+      # The artifact is asked the same question the deploy would answer: does every path the page
+      # and the manifest name really sit in _site, at the size it claims?
+      - name: Declared assets ship
+        run: node tools/ship_check.mjs _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
