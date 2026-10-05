@@ -209,6 +209,36 @@ const SCENARIOS = {
     onlyFlash === true && H.state.moving === false && H.view.flashUntil === 0 && H.state.steps === 0,
     [onlyFlash, H.state.moving, flashBefore, Math.round(H.view.flashUntil * 1000), H.state.steps]);
 
+  // 塔的方向是**画出来**的事实，不是编码里的事实：盘号随直径增大（js/core/game.js 的 diskWidth），
+  // 所以最宽的盘必须落在最靠地面那一行。行号一旦按「同柱上比我小的盘数」算，画出来就是个倒立
+  // 漏斗 —— 最宽的盘浮在最上面，而画面声称最底下那个才能拿起来。规则与账本都不读像素，所以
+  // 这个错只有画面能发现，也只有画面能继续被它骗到。
+  const towerDir = (() => {
+    const g = H.geom(); const r = H.canvasRect();
+    const yLocal = (d) => H.diskPoint(d).y - r.y;
+    const widest = H.state.n - 1;
+    const topDisk = H.state.tops[0];
+    return { widest, topDisk, yWidest: yLocal(widest), yTop: yLocal(topDisk), floor: g.floor };
+  })();
+  T('最宽的盘画在最靠地面的一行，柱顶盘画在最上面',
+    towerDir.yWidest > towerDir.yTop && (towerDir.floor - towerDir.yWidest) < (towerDir.floor - towerDir.yTop),
+    towerDir);
+  const bandProbe = (() => {
+    const g = H.geom(); const r = H.canvasRect();
+    const p = H.diskPoint(H.state.tops[0]);
+    const x = p.x - r.x; const y0 = p.y - r.y;
+    let k = 0;
+    while (k < 160 && H.view.diskAt(x, y0 + k) >= 0) k++;
+    return { measured_css_px: k, diskH: g.diskH, formula: Math.max(g.diskH * 1.9, 44) };
+  })();
+  T('柱顶盘的命中带 ≥ 44 CSS px', bandProbe.measured_css_px >= 44, bandProbe);
+  T('按在埋在下面的盘上，拿起来的不是它', (() => {
+    const r = H.canvasRect();
+    const buried = H.state.n - 1;
+    const p = H.diskPoint(buried);
+    return H.view.diskAt(p.x - r.x, p.y - r.y) !== buried;
+  })(), null);
+
   const seenBefore = H.state.tutorialSeen;
   H.helpOpen(true);
   const sheet = document.getElementById('helpCurtain');

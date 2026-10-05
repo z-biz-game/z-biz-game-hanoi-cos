@@ -344,6 +344,12 @@ el.hint.addEventListener('click', () => {
 el.restart.addEventListener('click', () => {
   if (!app.game) return;
   resetGame(app.game);
+  // 提示次数与演示累加器是「这一趟」的状态：不清的话，重开后的第一步演示会提前最多一帧到来
+  // （实测 0.2167s < DEMO_STEP_S 0.26s），而面板上的 hints 还带着上一趟的数。
+  app.hints = 0;
+  if (app.demo.on) app.demo.acc = 0;
+  // `refused` 不归这里：它是「这张 LOT」的违规账，由 apply() 在换图时清零（tools/playtest.mjs
+  // 的 @pointer 段落就靠它跨重开成立）。
   el.curtain.hidden = true;
   sfx('ui');
   view.snap();

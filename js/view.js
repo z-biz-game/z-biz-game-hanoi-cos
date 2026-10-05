@@ -117,12 +117,24 @@ export function createView(canvas, hooks = {}) {
     return { x: rect.left + x, y: rect.top + y, rect };
   }
 
+  // Which row of its peg a disk sits on, counted up from the floor. The floor row belongs to the
+  // disk with everything else on top of it, so the count is of the disks *underneath* — the ones
+  // with a higher index (index grows with diameter: game.js `diskWidth`, and `canMove` only lets a
+  // disk land on a peg whose top is a larger index). Counting the smaller disks instead yields an
+  // upside-down tower: the widest bar on the topmost row, the narrowest on the floor, and the
+  // picture then claims the wrong disk is the liftable one.
+  function slotOf(digits, disk, peg) {
+    let k = 0;
+    for (let i = disk + 1; i < digits.length; i++) if (digits[i] === peg) k++;
+    return k;
+  }
+
   function diskPoint(disk) {
     const g = geom();
     const s = view.game ? view.game.state : 0;
     const peg = view.game ? pegOf(s, disk, g.pegs) : 0;
     const digits = view.game ? decode(s, g.n, g.pegs) : [];
-    const slot = digits.slice(0, disk).filter((p) => p === peg).length;
+    const slot = slotOf(digits, disk, peg);
     const p = client(g.center(peg), g.topOf(slot));
     return { x: p.x, y: p.y, peg, slot, diskH: g.diskH };
   }
@@ -150,7 +162,7 @@ export function createView(canvas, hooks = {}) {
     for (let d = 0; d < g.n; d++) if (digits[d] === peg) count = Math.max(count, 0);
     if (count < 0) return -1; // empty peg
     const top = pegTops(s, g.n, g.pegs)[peg];
-    const slots = digits.slice(0, top).filter((p) => p === peg).length;
+    const slots = slotOf(digits, top, peg);
     const py = g.topOf(slots);
     // 命中带取 diskH*1.9 与 HIT_MIN 的较大者：小屏上 diskH 只有 9px，按 1.9 倍算下来的
     // 17px 带在手机上基本按不中，而按到柱身时旧代码回的是「这柱是空的」——一句假话。
@@ -306,7 +318,7 @@ export function createView(canvas, hooks = {}) {
         peg = t < 0.5 ? trav.from : trav.to;
         lift = Math.sin(Math.PI * t) * g.diskH * 0.8;
       }
-      const slots = digits.slice(0, d).filter((p) => p === peg).length;
+      const slots = slotOf(digits, d, peg);
       const w = diskWidth(d, g.n) * g.maxHalf * 2;
       const x = g.center(peg);
       const y = g.topOf(slots) - lift;
