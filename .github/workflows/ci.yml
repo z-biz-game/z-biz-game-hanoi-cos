@@ -28,7 +28,7 @@ jobs:
       - name: Syntax
         run: npm run check
       - name: Bake is reproducible
-        run: node tools/bake.mjs --check
+        run: npm run bake:check
       - name: Suites
         run: npm run unit
       # 部署集闸：按 tools/assemble-site.sh 那份清单真拷一遍产物，要求页面会去要的东西
