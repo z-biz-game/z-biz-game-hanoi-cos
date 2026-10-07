@@ -103,6 +103,10 @@ if [ -z "${SKIP_UNIT:-}" ]; then
   echo "=== deploy-set ==="
   node tools/deploy-set.mjs || FAILED=1
   node tools/deploy-set-selftest.mjs || FAILED=1
+  # 文档引用闸：README/DESIGN 里印着的 `path:NN` 逐条读回来对账（范围 + 空行 + 整词锚点）。
+  # 这一条与 ci.yml 的 Doc citations 步骤是**同一行命令**——只在 CI 或只在本地跑的门不算门。
+  echo "=== doctest ==="
+  node tools/doctest.mjs || FAILED=1
 fi
 
 export CDP_PORT
