@@ -37,7 +37,7 @@ const CMD = 'node tools/doctest.mjs';
 const SKIP_DIRS = new Set(['.git', 'node_modules', '_scratch', '_site', '_tmp', 'shots']);
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 
-const PATH_SRC = '[\\w./@-]+?\\.(?:js|mjs|cjs|sh|json|yml|yaml|html|css|md|py|webmanifest)';
+const PATH_SRC = '[\\w./@-]+?\\.[A-Za-z][A-Za-z0-9]{0,11}'; // 后缀不许写死：写死成某一族的语言时，本腿在那种仓里是哑的，而「0 条引用」读起来和「全核过」一模一样
 const CITE = new RegExp('^(' + PATH_SRC + '):([0-9]+(?:[,-][0-9]+)*)$');
 const BARE = /^:([0-9]+(?:[,-][0-9]+)*)$/;
 // 锚点可以是成员路径（`view.cellCenter`）但绝不能是文件路径：body 里带 `/` 的是另一条引用，
