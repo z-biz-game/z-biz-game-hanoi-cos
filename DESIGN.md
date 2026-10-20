@@ -41,9 +41,9 @@ n=1..13 随后由穷尽 BFS 复现（含 `maxDist === 3^n − 1`，即开局塔�
   这条由 `test/game.test.mjs` 的源码扫描把守（正则匹配 `window|document|localStorage|navigator|requestAnimationFrame|fetch`，注释行剔除）。
 * `view.js` 只把一次拖拽变成 `onMove(from, to)`；`main.js` 只把它交给 `moveTop`。
   因此"点得着"与"算得对"是同一扇门：`@pointer` 真鼠标与 `hanoi.move()` 注入走的是同一行 `moveTop`。
-  视图侧唯一读规则的地方是"要不要亮起来"：拖拽幻影与线柱轨道（`js/view.js:149` 的 `drawLinks`）
+  视图侧唯一读规则的地方是"要不要亮起来"：拖拽幻影与线柱轨道（`js/view.js:158` 的 `drawLinks`）
   都调 `legalMoves(s, n, pegs, rule)`，`rule` 从 `view.game.rule` 经 `geom()` 带下来
-  （`js/view.js:70`），视图自己不判合法性。
+  （`js/view.js:72`），视图自己不判合法性。
 * 一次被拒的拖拽只记一本账：`moveTop` 拒绝时记进 `game.refused`，视图在"空柱上按下、根本没有盘可抬"
   时发 `refuse` 事件，`main.js` 的钩子把它也记到同一个 `game.refused` 上并生成那句解释
   （`js/main.js:147`）。手势侧的 `up()` **不**再补记一次，否则同一次拒绝会被记两遍，
@@ -64,7 +64,7 @@ n=1..13 随后由穷尽 BFS 复现（含 `maxDist === 3^n − 1`，即开局塔�
 `dist3` **不是线柱的量具**：它按"一个盘可以跳到任意一根柱"推导备用柱，相邻柱规则下那条推断不成立。
 所以线柱局面上只有 `table` 这一个分支，能量的最大一档就是 `3^10`（`js/core/make.js:45` 的
 `LINE_MAX_N = 10` 由 `TABLE_BUDGET` 量出，不是难度选择）；`metricsFor(11, 3, …, 'line')` 像
-四柱 n=11 一样 `throw`（`test/line.test.mjs:190`，`bfsTable(14, …, 'line')` 同样被拒：
+四柱 n=11 一样由 `test/line.test.mjs:190` 的 `throws` 顶住（`bfsTable(14, …, 'line')` 同样被拒：
 `test/line.test.mjs:69`）。"`dist3` 与线柱表必须给出不同的数"本身是一条断言
 （`test/line.test.mjs:200`，n=2..8 逐档），否则线柱的穷尽复现可能只是在重述自由图。
 
@@ -112,7 +112,7 @@ n=1..13 随后由穷尽 BFS 复现（含 `maxDist === 3^n − 1`，即开局塔�
 线柱的 10 行同样印 `1`（`routeCount` 只在开启计数的穷尽图上量，`test/line.test.mjs:66` 另钉 n ≤ 8 独立复现）。
 乱盘行**不印** `routeCount`（面板显示 `—`）：那是全图性质，不是那个开局盘面的性质。
 
-**（4）线柱不出乱盘。** `js/core/make.js:131` 的 `canScramble` 对 `rule === 'line'` 直接返回 `false`。
+**（4）线柱不出乱盘。** `js/core/make.js:126-131` 的 `canScramble` 对 `rule === 'line'` 直接返回 `false`。
 理由不是"还没写"，是随机题的带宽常量（`bandFor`）是从**自由图**上的 1,000 条随机走步实测出来的
 （本仓 §6 那张表），相邻柱图的可达距离分布是另一回事；把那份带搬过去印出来的就是没人量过的难度承诺。
 要出乱盘得先在线柱图上重做那份走步研究，届时 `make.js` 的那一行才是唯一要改的地方。
@@ -175,12 +175,12 @@ n=1..13 随后由穷尽 BFS 复现（含 `maxDist === 3^n − 1`，即开局塔�
 * `dist3` 里备用柱的算式 `u = 3 − p − target`（三根柱编号和为 0+1+2=3）。写成 `3*2−2−p−goal` 之类
   会在 n ≤ 7 对账里露出 2,858 处失配——这条测试就是为它写的。
 * **`dist3` 不能拿去答线柱**：那条递推的前提就是"一个盘可以跳到任意柱"。线柱在 `metricsFor` 里只能走
-  `table` 分支（`test/line.test.mjs:190` 断言 n=11 的线柱 `throw`，`:200` 断言两个量具必须给出不同的数）。
+  `table` 那一支：`test/line.test.mjs:190` 的 `throws` 顶住 n=11 的线柱当场抛，`:200` 断言两个量具必须给出不同的数。
   "复用一下现成递推"会把 `3^n−1` 印成 `2^n−1`，而且如果那条"必须不同"的断言也不在，全绿。
 * `metricsFor` 的缓存键与 `library.js` 的 `attached` 缓存键**都必须带 `rule`**：一张线柱塔与同塔形的
   自由塔共享 `(pegs, n, start, goal)` 这四个数，只差"在哪个图上量的"。哪个键漏了 `rule`，先开局的那张
   就把自己的距离表借给另一张——所有数字自洽，只是全错。
-* `pegStepOk` 对未知 `rule` 取值 `throw` 而不是返回 `true`（`test/line.test.mjs:103`）：
+* `pegStepOk` 对未知 `rule` 取值当场抛而不是返回真值：`test/line.test.mjs:103` 的 `throws` 钉的就是这一条。
   以后再加一条规则时，拼错的字符串必须当场响，不能静默退化成自由图。
 * `BANDS` 与 `TIERS` 是两份名单：`parse()`、索引页、面板 chip 读前者，`dailyLevel` 哈希进后者。
   把新带塞进 `TIERS` 会静默重排所有历史日期（§5 (5)）；只加进 `TIERS` 不加 `BANDS`，
@@ -253,17 +253,17 @@ n=1..13 随后由穷尽 BFS 复现（含 `maxDist === 3^n − 1`，即开局塔�
 单独把 `@pointer` 跑三遍全绿，改完之后整跑两遍全绿——这条对照行本身在赛跑，而赛跑露出了两件事。
 
 * **断言在采样一条它没等完的动画尾巴。** 它上面两行刚做完两次"拖到边框外"的真鼠标移动，两次都是
-  **计费步**，于是 `view.travel` 里正有一次 190 ms 的抬升动画在放（`js/view.js:237`）；两个 `pixels()`
+  **计费步**，于是 `view.travel` 里正有一次 190 ms 的抬升动画在放（`js/view.js:246`）；两个 `pixels()`
   是两次独立的 CDP 往返，负载高的时候正好一前一后跨过最后一帧。修法不是把"两次哈希相等"改成
   "差不多就行"，而是把"没有事情在发生"本身变成一条断言：新增 `nothing is in motion when the
   fingerprint control samples`，读视图自己的 `travel.size / drag / shake / flashUntil`
-  （`js/view.js:303` 的 `isMoving()` 用的正是这四个量）等到静默为止，再取两个指纹。它第一次跑就自带证据：
+  （`js/view.js:312-313` 的 `isMoving()` 用的正是这四个量）等到静默为止，再取两个指纹。它第一次跑就自带证据：
   `{"moving":false,"waited":44}` —— 视图被问了 44 ms 才停，而旧的对照行是在 60 ms `waitShell` 之后
   立刻采样的。副作用：这条行也是新的红线，绘制泵真要变成永动机，它会在第 13 行红，而不是像以前
   那样把"永动"念成"采样噪声"。
 * **那条尾巴确实是产品的毛病。** `restart()` 与 `undo` 就地改模型（`js/main.js:295`、`js/main.js:313`），
   以前只补一次 `settle()`，于是上一次移动的抬升弧线会继续在**已经换了的那张盘**上放完：
-  最小盘在全塔复位之后还当众从 0 柱飞到 1 柱。现在两处都走 `view.snap()`（`js/view.js:389`：
+  最小盘在全塔复位之后还当众从 0 柱飞到 1 柱。现在两处都走 `view.snap()`（`js/view.js:398-402` 的 `snap`：
   清 `travel`/`drag`/`shake` 再画一帧）。钉住它的行是
   `@pointer: a restart snaps an in-flight move instead of replaying it`——先用 `hanoi.move()`
   故意把动画 armed 起来，再断言一次 restart 前后 `travel.size` 从 1 变 0，不依赖任何时序。

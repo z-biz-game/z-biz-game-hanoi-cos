@@ -1,62 +1,56 @@
-// 离线壳。三条硬约定，都是踩出来的：
+'use strict';
+// 离线可用 + 永不被旧缓存钉住。
 //
-// 1) 缓存名带版本号，activate 时把不是当前版本的缓存整份删掉。VERSION 只用来命名存储桶，
-//    不用来钉内容 —— 见下一条。
-// 2) 同源子资源一律**网络优先、失败退缓存**。手工版本号 + cache-first 会把 js/css 永久钉死在
-//    旧版，出新 HTML 配旧 JS 的鬼状态比没有 SW 更糟。
-// 3) install 里不做 addAll 预取清单：这个仓的模块图会长（js/core/* 现在就有 6 个），清单一旦
-//    漂移，一次 404 就让 install 拒绝、页面控制台报错，而本仓的验收线把「控制台干净」算作红。
-//    按需缓存（成功即写）覆盖同一个离线目标，且没有这个失败模式。
-//
-// file:// 下这段代码根本不会被装载：js/pwa.js 在没有 http origin 时不注册。
+// 两条实测换来的口径：
+//   1) 一律 **网络优先**，命中网络才回填缓存。手工 VERSION + cache-first 的组合，
+//      发出去的 HTML 会配上上一版的 js/css，出一个"新界面配旧逻辑"的鬼状态，
+//      而且玩家自己无法恢复（只能等缓存过期）。
+//   2) 缓存名带版本号（activate 时清掉非本版的名字）。改版**不需要**同步 bump：
+//      同名文件重绘之后，网络优先这一条保证客户端下一次联网就拿到新字节。
+const VERSION = 'hanoi-cos-v1';
+const CACHE = `${VERSION}-shell`;
+const PRECACHE = ['index.html', 'manifest.webmanifest'];
 
-const VERSION = 'hanoi-v1';
-const CACHE = `hanoi-${VERSION}`;
-const SHELL = './index.html';
-
-const sameOriginGet = (req) => {
-  if (req.method !== 'GET') return false;
-  let url;
-  try {
-    url = new URL(req.url);
-  } catch {
-    return false;
-  }
-  return url.origin === self.location.origin;
-};
-
-self.addEventListener('install', () => {
-  self.skipWaiting();
+self.addEventListener('install', (ev) => {
+  // 首屏两件套先抓下来：断网时至少能打开界面，而不是浏览器的错误页。
+  ev.waitUntil(
+    caches.open(CACHE).then((c) => c.addAll(PRECACHE).catch(() => {})).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (ev) => {
   ev.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim()),
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
-const put = (req, res) => caches.open(CACHE).then((c) => c.put(req, res.clone()));
-
 self.addEventListener('fetch', (ev) => {
   const req = ev.request;
-  if (!sameOriginGet(req)) return;
-  const isNav = req.mode === 'navigate' || (req.destination === 'document' && !/\.(js|css|png|json|webmanifest)$/.test(new URL(req.url).pathname));
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
 
   ev.respondWith(
     fetch(req)
       .then((res) => {
-        // 只存 200：一次 500 或 304 写进缓存，等于把故障固化成离线内容。
-        if (res && res.ok && res.type === 'basic') ev.waitUntil(put(req, res));
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
+        }
         return res;
       })
-      .catch(() => caches.match(req).then((hit) => {
+      .catch(async () => {
+        const hit = await caches.match(req);
         if (hit) return hit;
-        // 离线的导航请求：回到壳，让 hash 路由在本地把题面重建出来（盘面数字全在 js/data 里，
-        // 不需要服务器），而不是给用户一个浏览器的离线错误页。
-        if (isNav) return caches.match(SHELL).then((shell) => shell || Response.error());
+        // 导航请求（地址栏/刷新/桌面图标）离线时回落到缓存的那份壳，不白屏。
+        if (req.mode === 'navigate') {
+          const shell = await caches.match('index.html');
+          if (shell) return shell;
+        }
         return Response.error();
-      })),
+      })
   );
 });

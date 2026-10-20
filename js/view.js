@@ -602,6 +602,16 @@ export function createView(canvas, hooks = {}) {
       view.flashUntil = view.clock + ms / 1000;
       settle();
     },
+    // The gate the runtime pref flip lands on: idempotent, and settles so a peg stops mid-swing
+    // on the frame the setting changes rather than at the end of the 260ms decay.
+    setReduceMotion(v) {
+      const on = !!v;
+      if (on === reduceMotion) return reduceMotion;
+      reduceMotion = on;
+      if (reduceMotion) settle();
+      return reduceMotion;
+    },
+    isReducedMotion: () => reduceMotion,
     shakePeg(peg) {
       if (view.reducedMotion) return settle();
       view.shake = { peg, t0: view.clock };

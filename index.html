@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="twitter:card" content="summary">
 <meta name="color-scheme" content="dark">
-<meta name="description" content="汉诺塔：32 张 LOT，每关最少步数由穷尽 BFS 量出，并与 2^n−1 / Frame-Stewart / 线柱 3^n−1 对账。">
+<meta name="description" content="汉诺塔：32 张 LOT，每关最少步数由穷尽 BFS 量出，并与 2^n−1 / Frame-Stewart / 线柱 3^n−1 对账。"><meta property="og:title" content="汉诺塔 · HANOI"><meta property="og:description" content="汉诺塔：32 张 LOT，每关最少步数由穷尽 BFS 量出，并与 2^n−1 / Frame-Stewart / 线柱 3^n−1 对账。"><meta property="og:image" content="https://z-biz-game.github.io/z-biz-game-hanoi-cos/icons/icon-512.png"><meta name="twitter:image" content="https://z-biz-game.github.io/z-biz-game-hanoi-cos/icons/icon-512.png">
 <title>汉诺塔 · HANOI</title>
 <!-- 图标套件由 assets/gen/make_art.py 生成（母图 1024，派生到 16..512），盘上真 PNG，
      所以不再用家族里那条 `href="data:,"` 的省请求约定 —— 那条是给「没有位图可指」的仓用的。
@@ -26,6 +26,11 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="css/game.css">
+
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
 </head>
 <body data-mode="lot">
 <header class="top">
@@ -74,6 +79,7 @@
         <button id="restart" type="button">重来 <kbd>R</kbd></button>
         <button id="demo" type="button" aria-pressed="false"><span id="demoLabel">自动演示</span> <kbd>D</kbd></button>
         <button id="hintToggle" type="button" aria-pressed="true">提示高亮：开</button>
+      <button type="button" id="btn-fullscreen" aria-pressed="false" title="全屏 (F)">全屏 <kbd>F</kbd></button>
       </div>
       <div class="controls second">
         <button id="pause" type="button" aria-pressed="false"><span id="pauseLabel">暂停</span> <kbd>P</kbd></button>
@@ -152,5 +158,6 @@
 <div class="toast" id="toast" hidden role="status"></div>
 <noscript><p style="padding:1rem">这局游戏需要 JavaScript：所有盘面数字都由浏览器内的穷尽搜索与闭式对账产生。</p></noscript>
 <script type="module" src="js/main.js"></script>
+  <script src="js/sw-register.js"></script>
 </body>
 </html>
