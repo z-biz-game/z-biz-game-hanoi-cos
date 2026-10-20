@@ -605,13 +605,11 @@ export function createView(canvas, hooks = {}) {
     // The gate the runtime pref flip lands on: idempotent, and settles so a peg stops mid-swing
     // on the frame the setting changes rather than at the end of the 260ms decay.
     setReduceMotion(v) {
-      const on = !!v;
-      if (on === reduceMotion) return reduceMotion;
-      reduceMotion = on;
-      if (reduceMotion) settle();
-      return reduceMotion;
+      // 并线留下的双入口：远端那套（window.hanoi.setReduceMotion）转成本仓真实现
+      // （view.reducedMotion 才是所有动画判定读的那一个），不再引用被裁掉的局部变量。
+      return view.setReducedMotion(!!v);
     },
-    isReducedMotion: () => reduceMotion,
+    isReducedMotion: () => view.reducedMotion,
     shakePeg(peg) {
       if (view.reducedMotion) return settle();
       view.shake = { peg, t0: view.clock };
