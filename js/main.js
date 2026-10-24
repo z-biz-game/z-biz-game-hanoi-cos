@@ -17,6 +17,9 @@ import {
 import { EXHAUST_LIMIT, TABLE_BUDGET, FS_RANGE, closedForm3, closedFormLine, fsPar, stateCount } from './core/solve.js';
 import { bestOf, dailyDone, doneList, load as loadSave, markDaily, recordResult, reset as wipeSave, selfTest, stats as saveStats, unlockedIds } from './core/storage.js';
 import { todayKey } from './core/rng.js';
+// 一次对局 = 一次会话：js/core/session.js 拥有那只表（面板上的「用时」）与那道闸
+// （盘面落子、演示推子、键盘快捷键都要先过它）。壳层只做接线。
+import { createSession } from './core/session.js';
 // BANDS, not TIERS: TIERS is the four *free* difficulty bands the daily and random generators
 // partition, and make.dailyLevel hashes a date into `hash % TIERS.length` — adding 线柱 there would
 // silently re-band every date already played. BANDS is TIERS plus the appended 线柱 band, and it is
@@ -27,7 +30,7 @@ import { createView } from './view.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {};
-for (const id of ['board', 'stage', 'lotId', 'band', 'shape', 'steps', 'left', 'over', 'par', 'space', 'ways', 'proof', 'best', 'unlocked', 'hintline', 'undo', 'hint', 'restart', 'demo', 'hintToggle', 'curtain', 'card', 'cardTitle', 'cardBody', 'cardNext', 'close', 'index', 'indexList', 'toast', 'reset', 'saveState', 'today', 'cap', 'counter', 'routeBox']) {
+for (const id of ['board', 'stage', 'lotId', 'band', 'shape', 'steps', 'left', 'over', 'par', 'space', 'ways', 'proof', 'best', 'unlocked', 'hintline', 'undo', 'hint', 'restart', 'demo', 'hintToggle', 'curtain', 'card', 'cardTitle', 'cardBody', 'cardNext', 'close', 'index', 'indexList', 'toast', 'reset', 'saveState', 'today', 'cap', 'counter', 'routeBox', 'pause', 'elapsed', 'pauseLayer', 'pauseResume']) {
   el[id] = $(id);
 }
 
@@ -43,6 +46,10 @@ const app = {
   wipeArmed: false,
   lastRecord: null,
 };
+
+// 一局一次会话：session 拥有那只表（面板上的「用时」）与那道闸（盘面输入、演示节拍、键盘
+// 快捷键都要先问 allowInput()）。表走的是 performance.now()——单调钟，墙上的钟会跳，秒表不该跳。
+const session = createSession(() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
 
 const view = createView(el.board, {
   move: (m) => commit(m.from, m.to),
@@ -117,6 +124,7 @@ function apply() {
     app.mode = 'index';
     app.level = null;
     app.game = null;
+    resetSession();      // 目录页没有对局：表停、暂停态清干净
     view.setGame(null);
     renderIndex();
     document.body.dataset.mode = 'index';
@@ -130,6 +138,7 @@ function apply() {
   app.level = buildLevel(route);
   app.game = createGame(app.level);
   app.hints = 0;
+  resetSession(true);   // 新的一局：表从头走，暂停态清干净
   app.demoStop && app.demoStop();
   view.setGame(app.game);
   const list = campaign();
@@ -159,6 +168,12 @@ function refusalReason(from, to) {
 
 function commit(from, to, via = 'pointer') {
   if (!app.game || app.game.done) return false;
+  // 暂停：盘面输入被挡。这道闸与演示的节拍、键盘快捷键是同一道——所以"暂停"不是一句提示，
+  // 而是真的接不住输入：暂停期间一步也走不出去。
+  if (!session.allowInput()) {
+    toast('已暂停：按 P 或 Esc 继续');
+    return false;
+  }
   const ok = moveTop(app.game, from, to);
   if (!ok) {
     view.shakePeg(from);
@@ -186,6 +201,7 @@ function lastToast() {
 function onFinish() {
   const g = app.game;
   const par = g.par;
+  session.stop();      // 通关了：表停在这一刻，结算卡上印的就是最终用时
   const certified = g.moves === par;
   const gradeNow = grade(g);
   const isDaily = app.mode === 'daily';
@@ -203,6 +219,7 @@ function onFinish() {
     el.cardBody.appendChild(row);
   };
   add('已用步数', String(g.moves));
+  add('用时', fmtElapsed(session.elapsedMs()));
   add('已证下界', `${par}${g.metrics && g.metrics.exact === false ? '（构建期穷尽）' : ''}`);
   add('超出', certified ? '0 步 · 与下界一致' : `${g.moves - par} 步`);
   add('评级', `${gradeNow.label} ${'★'.repeat(gradeNow.stars)}${'☆'.repeat(3 - gradeNow.stars)}`);
@@ -233,6 +250,7 @@ function render() {
   txt(el.par, String(lv.par));
   txt(el.left, left === null ? '—' : String(left));
   txt(el.over, over > 0 ? `超 ${over} 步` : left === 0 || g.done ? '与下界一致' : '未超');
+  txt(el.elapsed, fmtElapsed(session.elapsedMs()));
   txt(el.space, `${lv.pegs}^${lv.n} = ${stateCount(lv.n, lv.pegs).toLocaleString('en-US')} 态`);
   txt(el.ways, lv.ways === undefined || lv.ways === null ? '—（乱盘行不穷举路线数）' : `${lv.ways} 条最短路线`);
   txt(el.proof, lv.metrics && lv.metrics.proof ? lv.metrics.proof : '—');
@@ -314,6 +332,7 @@ el.restart.addEventListener('click', () => {
   if (!app.game) return;
   resetGame(app.game);
   el.curtain.hidden = true;
+  resetSession(true);  // 重来一局：表归零，暂停态清干净
   view.snap();
   render();
 });
@@ -329,6 +348,9 @@ el.demo.addEventListener('click', () => {
   if (!app.game || app.game.done) return;
   el.demo.textContent = '停止演示';
   app.demoTimer = setInterval(() => {
+    // 暂停：演示的节拍停住。演示是本仓唯一"自己会往前跑"的东西，暂停必须真的按住它——
+    // 恢复之后它从暂停处接着推，不重推也不跳过。
+    if (!session.allowInput()) return;
     const mv = nextMove(app.game);
     if (!mv) { stopDemo('这条路浏览器不认，演示停在认证范围外'); return; }
     commit(mv.from, mv.to, 'hint');
@@ -367,8 +389,15 @@ window.addEventListener('resize', () => view.measure());
 window.addEventListener('keydown', (ev) => {
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
   const k = ev.key.toLowerCase();
-  if (k === 'escape' && !el.curtain.hidden) el.curtain.hidden = true;
-  else if (k === 'u') el.undo.click();
+  // Esc 先关结算卡（它盖着盘面）；盘面上没有卡时，Esc 就是暂停/继续。
+  if (k === 'escape' && !el.curtain.hidden) { el.curtain.hidden = true; return; }
+  // P 与 Esc 都切暂停。两个键名都原样写出来，是为了让"键盘够得着"这件事在源码里看得见。
+  if (ev.key === 'p' || ev.key === 'P') { togglePause(); return; }
+  if (k === 'escape') { togglePause(); return; }
+  // 暂停期间：撤销/重来/演示一律停住——盘面冻着，按键也不许改它。
+  // 提示（H）不禁：它只高亮一步、不走子，思考的时候正是要它的时候。
+  if (!session.allowInput() && k !== 'h') return;
+  if (k === 'u') el.undo.click();
   else if (k === 'h') el.hint.click();
   else if (k === 'r') el.restart.click();
   else if (k === 'd') el.demo.click();
@@ -409,6 +438,8 @@ window.hanoi = {
       curtain: !el.curtain.hidden,
       cardTitle: el.cardTitle.textContent,
       demo: !!app.demoTimer,
+      paused: session.paused,
+      elapsed: Math.round(session.elapsedMs()),
       best: lv ? bestOf(lv.id, loadSave()) : null,
       painted: view.painted,
       frames: view.frames,
@@ -456,6 +487,7 @@ window.hanoi = {
   restart() { el.restart.click(); return app.game ? app.game.moves : -1; },
   demoStart() { el.demo.click(); return !!app.demoTimer; },
   demoStop() { stopDemo(''); return app.demoTimer === 0; },
+  pauseOnce() { togglePause(); return session.paused; },
   closeCard() { el.curtain.hidden = true; return el.curtain.hidden; },
   pixels() { return view.pixels(); },
   painted() { return view.painted; },
@@ -596,3 +628,53 @@ if (motionQuery) {
 }
 window.hanoi.setReduceMotion = applyReduceMotion;
 window.hanoi.isReducedMotion = () => view.isReducedMotion();
+
+// ---- 暂停与用时 ---------------------------------------------------------------------------
+// 接线都在这一段：按钮、遮罩、键盘、视图的动画钟。规则在 js/core/session.js——那只表与那道闸。
+//
+// 「暂停」在这里不是一句提示，是四件事同时成立：表停住（用时不涨）、盘面输入被挡（一步也
+// 走不出去）、画布的动画钟停住（那段抬盘的缓动不会偷偷放完）、暂停态看得见（遮罩写着
+// 「已暂停」）。继续之后四件事一起翻回来：表从暂停处接着走，不重复累加也不跳格。
+
+// 面板上的用时：分:秒。不到一分钟也照这个写法，玩家不必去猜单位。
+function fmtElapsed(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// 暂停态的可见部分：遮罩 + 按钮文案 + 视图的动画钟。三处一起翻，免得只翻一半
+// （按钮写着"继续"而遮罩没了，或者遮罩在而盘面还在动）。
+function paintPause() {
+  const on = session.paused;
+  el.pauseLayer.hidden = !on;
+  el.pause.firstChild.textContent = on ? '继续 ' : '暂停 ';
+  el.pause.setAttribute('aria-pressed', String(on));
+  view.setPaused(on);
+}
+
+// 切暂停：表停住、输入被挡、动画钟停住。已经暂停就把它叫醒，反之亦然。
+function togglePause() {
+  if (!app.game || app.game.done) return false;
+  session.toggle();
+  paintPause();
+  toast(session.paused ? '已暂停：思考不计时间' : '继续');
+  return session.paused;
+}
+
+// 新的一局（新盘面 / 重来）：表归零，暂停态清干净。wantRun=true 时表立刻开始走。
+function resetSession(wantRun = false) {
+  session.reset();
+  paintPause();
+  if (wantRun) session.start();
+}
+
+el.pause.addEventListener('click', () => { togglePause(); });
+el.pauseResume.addEventListener('click', () => { if (session.paused) togglePause(); });
+
+// 用时每 250 ms 刷一次：面板上那个数是活的，但它读的是 session.elapsedMs()，不是自己累加
+// 的——所以暂停期间它自然停住，继续之后接着走。
+setInterval(() => {
+  if (!app.game) return;
+  const t = fmtElapsed(session.elapsedMs());
+  if (el.elapsed.textContent !== t) el.elapsed.textContent = t;
+}, 250);

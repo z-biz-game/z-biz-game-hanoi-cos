@@ -31,6 +31,10 @@ export function createView(canvas, hooks = {}) {
   // 第 N 号盘"），摆动是叠在读数上的装饰，归零位移不损失信息。
   // **柱子本身照旧照常画** —— 柱子是棋盘，不是反馈的一部分，动不得。
   let reduceMotion = false;
+  // 暂停态的两句：画布的动画钟停在哪一刻，以及它停没停。它们是"视图自己知道的事"，
+  // 壳层只负责把状态转过来（setPaused）。
+  let paused = false;
+  let pausedAt = 0;
   const view = {
     game: null,
     painted: false,
@@ -185,7 +189,7 @@ export function createView(canvas, hooks = {}) {
 
   function draw() {
     const g = geom();
-    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const now = clockNow();
     ctx.clearRect(0, 0, g.pad * 2 + g.usable, view.h + 4);
 
     const sky = ctx.createLinearGradient(0, 0, 0, view.h);
@@ -322,6 +326,8 @@ export function createView(canvas, hooks = {}) {
     view.frames++;
     draw();
     if (view.pending || !isMoving()) return;
+    // 暂停：动画钟停住，不再预约下一帧。画面停在暂停的那一刻，继续时接着放。
+    if (paused) return;
     view.pending = requestAnimationFrame(() => { view.pending = 0; settle(); });
   }
 
@@ -332,7 +338,7 @@ export function createView(canvas, hooks = {}) {
   }
 
   function down(ev) {
-    if (!view.game || view.game.done) return;
+    if (!view.game || view.game.done || paused) return;
     const { x, y } = localPoint(ev);
     const disk = diskAt(x, y);
     if (disk < 0) {
@@ -362,6 +368,8 @@ export function createView(canvas, hooks = {}) {
 
   function up() {
     if (!view.drag) return;
+    // 暂停：手里那颗盘放回原处，不落子。抬手的那一下不许偷偷走一步。
+    if (paused) { view.drag = null; return; }
     const { disk, from, target } = view.drag;
     view.drag = null;
     const accepted = emit('move', { disk, from, to: target });
@@ -381,6 +389,35 @@ export function createView(canvas, hooks = {}) {
   window.addEventListener('pointerup', up);
   window.addEventListener('pointercancel', up);
 
+  // ---- 暂停：动画钟与手势 ------------------------------------------------------------------
+  //
+  // 暂停不是"把画布涂灰"：动画钟真的停住——clockNow 给出的永远是暂停那一刻的时刻，所以抬盘
+  // 那段 190 ms 的缓动不会在暂停期间偷偷放完。继续的时候，每一段动画的时间戳整体往后推
+  // 暂停掉的那一段，于是动画从暂停处接着走：不跳格，也不重放。
+  function clockNow() {
+    const t = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    return paused ? pausedAt : t;
+  }
+
+  function setPaused(on) {
+    const want = !!on;
+    if (want === paused) return paused;
+    const t = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (want) {
+      paused = true;
+      pausedAt = t;            // 动画钟停在这一刻
+      view.drag = null;        // 手里那颗盘放回原位（暂停不该顺手落子）
+    } else {
+      const dt = t - pausedAt;
+      paused = false;
+      for (const tr of view.travel.values()) tr.t0 += dt;
+      if (view.shake) view.shake.t0 += dt;
+      view.flashUntil += dt;
+      settle();                // 泵重新开起来
+    }
+    return paused;
+  }
+
   return Object.assign(view, {
     measure,
     setGame(game) {
@@ -391,6 +428,7 @@ export function createView(canvas, hooks = {}) {
       settle();
     },
     settle,
+    setPaused,
     // Snap the picture to the model. `travel` and `shake` animate *a move*, so undo and restart
     // change the truth underneath them: without this the last eased frame keeps playing over a
     // board that no longer matches it, and a frame fingerprint taken just after a restart reads

@@ -41,15 +41,21 @@ n=1..13 随后由穷尽 BFS 复现（含 `maxDist === 3^n − 1`，即开局塔�
   这条由 `test/game.test.mjs` 的源码扫描把守（正则匹配 `window|document|localStorage|navigator|requestAnimationFrame|fetch`，注释行剔除）。
 * `view.js` 只把一次拖拽变成 `onMove(from, to)`；`main.js` 只把它交给 `moveTop`。
   因此"点得着"与"算得对"是同一扇门：`@pointer` 真鼠标与 `hanoi.move()` 注入走的是同一行 `moveTop`。
-  视图侧唯一读规则的地方是"要不要亮起来"：拖拽幻影与线柱轨道（`js/view.js:158` 的 `drawLinks`）
+  视图侧唯一读规则的地方是"要不要亮起来"：拖拽幻影与线柱轨道（`js/view.js:162` 的 `drawLinks`）
   都调 `legalMoves(s, n, pegs, rule)`，`rule` 从 `view.game.rule` 经 `geom()` 带下来
-  （`js/view.js:72`），视图自己不判合法性。
+  （`js/view.js:76`），视图自己不判合法性。
 * 一次被拒的拖拽只记一本账：`moveTop` 拒绝时记进 `game.refused`，视图在"空柱上按下、根本没有盘可抬"
   时发 `refuse` 事件，`main.js` 的钩子把它也记到同一个 `game.refused` 上并生成那句解释
-  （`js/main.js:147`）。手势侧的 `up()` **不**再补记一次，否则同一次拒绝会被记两遍，
+  （`js/main.js:156`）。手势侧的 `up()` **不**再补记一次，否则同一次拒绝会被记两遍，
   `@play` / `@pointer` 的账本就对不上了。
 * `game.js` 不 import `solve.js`（避免环）：距离能力以 `level.metrics`（闭包对象）的形式由
   `library.js`/`make.js` 注入。`metrics.remaining(state, movesSoFar)` 是面板唯一能读到的"还剩几步"。
+* 一次对局 = 一次会话（`js/core/session.js`）：那只表（面板上的「用时」）与那道闸
+  （`allowInput()`——盘面落子、演示的节拍、键盘快捷键都要先问它一句）。
+  「暂停」不是一句提示，是四件事同时成立：表停住、输入被挡、画布的动画钟停住、暂停态看得见。
+  动画钟的停法是"把每段动画的时间戳整体后推暂停掉的那一段"，于是抬盘那段 190 ms 的缓动
+  不会在暂停期间偷偷放完，继续时从暂停处接着走（不跳格，也不重放）。
+  表的读数是玩家自己的时间——思考不是走子，所以暂停停的是表，不是思路。
 
 ## 3. 度量政策：三条分支与"点击时搜索"的边界
 
@@ -253,17 +259,17 @@ n=1..13 随后由穷尽 BFS 复现（含 `maxDist === 3^n − 1`，即开局塔�
 单独把 `@pointer` 跑三遍全绿，改完之后整跑两遍全绿——这条对照行本身在赛跑，而赛跑露出了两件事。
 
 * **断言在采样一条它没等完的动画尾巴。** 它上面两行刚做完两次"拖到边框外"的真鼠标移动，两次都是
-  **计费步**，于是 `view.travel` 里正有一次 190 ms 的抬升动画在放（`js/view.js:246`）；两个 `pixels()`
+  **计费步**，于是 `view.travel` 里正有一次 190 ms 的抬升动画在放（`js/view.js:250`）；两个 `pixels()`
   是两次独立的 CDP 往返，负载高的时候正好一前一后跨过最后一帧。修法不是把"两次哈希相等"改成
   "差不多就行"，而是把"没有事情在发生"本身变成一条断言：新增 `nothing is in motion when the
   fingerprint control samples`，读视图自己的 `travel.size / drag / shake / flashUntil`
-  （`js/view.js:312-313` 的 `isMoving()` 用的正是这四个量）等到静默为止，再取两个指纹。它第一次跑就自带证据：
+  （`js/view.js:316-317` 的 `isMoving()` 用的正是这四个量）等到静默为止，再取两个指纹。它第一次跑就自带证据：
   `{"moving":false,"waited":44}` —— 视图被问了 44 ms 才停，而旧的对照行是在 60 ms `waitShell` 之后
   立刻采样的。副作用：这条行也是新的红线，绘制泵真要变成永动机，它会在第 13 行红，而不是像以前
   那样把"永动"念成"采样噪声"。
-* **那条尾巴确实是产品的毛病。** `restart()` 与 `undo` 就地改模型（`js/main.js:295`、`js/main.js:313`），
+* **那条尾巴确实是产品的毛病。** `restart()` 与 `undo` 就地改模型（`js/main.js:313`、`js/main.js:331`），
   以前只补一次 `settle()`，于是上一次移动的抬升弧线会继续在**已经换了的那张盘**上放完：
-  最小盘在全塔复位之后还当众从 0 柱飞到 1 柱。现在两处都走 `view.snap()`（`js/view.js:398-402` 的 `snap`：
+  最小盘在全塔复位之后还当众从 0 柱飞到 1 柱。现在两处都走 `view.snap()`（`js/view.js:436-440` 的 `snap`：
   清 `travel`/`drag`/`shake` 再画一帧）。钉住它的行是
   `@pointer: a restart snaps an in-flight move instead of replaying it`——先用 `hanoi.move()`
   故意把动画 armed 起来，再断言一次 restart 前后 `travel.size` 从 1 变 0，不依赖任何时序。

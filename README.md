@@ -23,7 +23,7 @@ bash tools/verify.sh       # node 1642 + 浏览器 185（真起 headless Chrome 
 
 | 层 | 文件 | 允许做什么 |
 | --- | --- | --- |
-| 纯函数 | `js/core/{rng,game,solve,make,storage,library}.js` | 只有 `storage.js` 摸 `window.localStorage`，且守卫式 + 会抛异常 |
+| 纯函数 | `js/core/{rng,game,solve,make,storage,library,session}.js` | 只有 `storage.js` 摸 `window.localStorage`，且守卫式 + 会抛异常；`session.js` 拥有那只表与那道闸 |
 | 像素与手势 | `js/view.js` | 绘制 + 把一次拖拽变成一个 `moveTop(from, to)` 调用；不判合法性 |
 | DOM 与状态 | `js/main.js` | 路由、面板、存档、`window.hanoi`；不写规则、不写算术 |
 
@@ -91,12 +91,15 @@ bash tools/verify.sh       # node 1642 + 浏览器 185（真起 headless Chrome 
 
 ## 界面口径
 
-常驻面板：`已用步数` / `已证下界` / `剩余（最短）` / `超支`。完成时 `steps === par` → **认证解**；
+常驻面板：`已用步数` / `已证下界` / `剩余（最短）` / `超支` / `用时`。完成时 `steps === par` → **认证解**；
 `steps > par` → **已通关，但未达已证下界**。大盘压小盘的拖拽被拒绝且**不计数**（`@pointer` 必测）。
 越界拖拽在最外柱钳制。四柱 n=9/10 的位置一旦离开认证路线，"剩余"显示 `—` 而不是猜一个数。
-线柱局面上，相邻柱之间画一条轨道（`js/view.js:158` 的 `drawLinks`），抬起盘子时那一段按
+线柱局面上，相邻柱之间画一条轨道（`js/view.js:162` 的 `drawLinks`），抬起盘子时那一段按
 `legalMoves(s, n, pegs, rule)` 的真实读数亮绿或亮红；被拒的拖拽会说清是哪半条规则说的"不"
-（`js/main.js:147` 的 `refusalReason`：「线柱：只能移到相邻柱」/「大盘不能压小盘…」/「X 柱是空的」）。
+（`js/main.js:156` 的 `refusalReason`：「线柱：只能移到相邻柱」/「大盘不能压小盘…」/「X 柱是空的」）。
+`用时` 走的是玩家的表：按 `P` 或 `Esc` 暂停时表停住、盘面输入被挡（一步也走不出去）、画布上那段
+抬盘缓动停在原地，遮罩上写着「已暂停」；继续之后从暂停处接着走，不重复累加也不跳格。
+`test/pause.test.mjs` 钉的就是这几条（表是手摇的，不靠睡眠）。
 
 ## 端口
 
@@ -106,8 +109,8 @@ eulertrail 5186/9346、matchwork 5185/9345、tango 5191/9351）；同机同时�
 
 ## 测试
 
-* node 层 7 个套件、**1642 条断言**（`test/{rng,solve,game,make,library,line,storage}.test.mjs`
-  = 19/182/144/230/648/362/57），期望值全部手写死，不从实现读回。`test/line.test.mjs` 那一档专门
+* node 层 8 个套件、**1674 条断言**（`test/{rng,solve,game,make,library,line,storage,pause}.test.mjs`
+  = 19/182/144/230/648/362/57/32），期望值全部手写死，不从实现读回。`test/line.test.mjs` 那一档专门
   把线柱的两条闭式、递推、穷尽复现、"限制确实削图"的反证与"本仓拒绝印什么"分开钉住。
 * 浏览器层 `tools/verify.sh`：`@boot @play @routes @save @reloaded @pointer @line` 七段、**185 行**
   （36/27/49/16/8/28/21），`@pointer` 用 CDP `Input.dispatchMouseEvent` 真鼠标走完 `lot-3p-4` 的整条
