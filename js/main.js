@@ -20,6 +20,10 @@ import { todayKey } from './core/rng.js';
 // 一次对局 = 一次会话：js/core/session.js 拥有那只表（面板上的「用时」）与那道闸
 // （盘面落子、演示推子、键盘快捷键都要先过它）。壳层只做接线。
 import { createSession } from './core/session.js';
+// 听觉与触觉这两路反馈：视觉与数值之外，桌面上还该有"听得见"的一路。
+// 音频模块自己管手势解锁与真静音（suspend），这里只管把音接到真实事件上。
+import { audio } from './audio.js';
+import { haptics } from './haptics.js';
 // BANDS, not TIERS: TIERS is the four *free* difficulty bands the daily and random generators
 // partition, and make.dailyLevel hashes a date into `hash % TIERS.length` — adding 线柱 there would
 // silently re-band every date already played. BANDS is TIERS plus the appended 线柱 band, and it is
@@ -64,6 +68,10 @@ const view = createView(el.board, {
   refuse: (info) => {
     if (!app.game || !info) return null;
     app.game.refused++;
+    // 画布自己拒了这一拖（它的 up() 根本走不到一笔被计的着法）：
+    // 引擎说不合法，这一路就该是"错"，不是"没听见"。
+    audio.play('wrong');
+    haptics.wrong();
     return info.reason === 'nothing to lift'
       ? `${PEG_NAMES[info.peg]} 柱是空的，没有盘可拿`
       : refusalReason(info.from, info.to);
@@ -166,18 +174,29 @@ function refusalReason(from, to) {
   return '这一步不合规则';
 }
 
+// 声音接在这条路径上，因为这条路径上发生的是**真实事件**：
+//   · 暂停中 → blocked（闸挡住了，不是"错"）
+//   · moveTop 拒了这一手 → wrong（规则不成立，壳层只是把理由念出来）
+//   · moveTop 认了这一手 → correct（一次有效操作成功）
+//   · 这一手把塔收完了 → win（在 onFinish 里）
 function commit(from, to, via = 'pointer') {
-  if (!app.game || app.game.done) return false;
+  if (!app.game || app.game.done) {
+    audio.play('blocked');        // 这一局已经收尾：来晚了，不是走错
+    return false;
+  }
   // 暂停：盘面输入被挡。这道闸与演示的节拍、键盘快捷键是同一道——所以"暂停"不是一句提示，
   // 而是真的接不住输入：暂停期间一步也走不出去。
   if (!session.allowInput()) {
     toast('已暂停：按 P 或 Esc 继续');
+    audio.play('blocked');
     return false;
   }
   const ok = moveTop(app.game, from, to);
   if (!ok) {
     view.shakePeg(from);
     toast(refusalReason(from, to));
+    audio.play('wrong');
+    haptics.wrong();
     render();
     return false;
   }
@@ -185,7 +204,13 @@ function commit(from, to, via = 'pointer') {
   view.travel.set(mv.disk, { from: mv.from, to: mv.to, t0: performance.now() });
   view.settle();
   if (via === 'hint') app.hints++;
-  if (app.game.done) onFinish();
+  if (app.game.done) {
+    onFinish();                    // 收官那一响是 win，在 onFinish 里
+    haptics.correct();
+  } else {
+    audio.play('correct');         // 一次有效操作成功
+    haptics.correct();
+  }
   render();
   return true;
 }
@@ -202,6 +227,7 @@ function onFinish() {
   const g = app.game;
   const par = g.par;
   session.stop();      // 通关了：表停在这一刻，结算卡上印的就是最终用时
+  audio.play('win');   // 通关那一响
   const certified = g.moves === par;
   const gradeNow = grade(g);
   const isDaily = app.mode === 'daily';
@@ -313,6 +339,7 @@ function renderIndex() {
 el.undo.addEventListener('click', () => {
   if (!app.game) return;
   undo(app.game);
+  audio.play('move');        // 撤销：盘面退了一步
   view.snap();
   render();
 });
@@ -321,9 +348,11 @@ el.hint.addEventListener('click', () => {
   const mv = hint(app.game);
   if (!mv) {
     toast('这个位置的最短路线不在浏览器可测范围内，只能给出下界');
+    audio.play('wrong');
     return;
   }
   app.hints++;
+  audio.play('move');        // 提示：只高亮一步，不代走
   view.showHint(true);
   txt(el.hintline, `提示：第 ${mv.disk + 1} 号盘 ${PEG_NAMES[mv.from]} → ${PEG_NAMES[mv.to]}`);
   toast('已高亮一步（未代走）');
@@ -608,6 +637,29 @@ if (document.readyState === 'loading') {
 } else {
   bootFullscreen();
 }
+
+// ---- 音效开关（#btn-sound）----
+//
+// 静音走 `audio.setMuted(true)`，那是 `ctx.suspend()`：整个 AudioContext 挂起。
+// **不许**改成像"把 master.gain 拧到 0"那样 —— 只拧 gain 是假静音：节点照建、时钟照跑，
+// 取消静音之后还有一截尾巴在响。真正的静音必须是挂起整个上下文。
+//
+// 按钮找不到就不装（和全屏那一条同一条纪律）：留一串没人按的代码等于没做这个功能。
+(function bindSound() {
+  const btn = document.getElementById('btn-sound');
+  if (!btn) return;
+  function paint() {
+    const on = !audio.muted;
+    btn.setAttribute('aria-pressed', String(on));
+    btn.textContent = on ? '音效：开' : '音效：关';
+    btn.title = on ? '点击关闭音效' : '点击开启音效';
+  }
+  btn.addEventListener('click', () => {
+    audio.setMuted(!audio.muted);
+    paint();
+  });
+  paint();
+})();
 
 // ---- 减弱动效（prefers-reduced-motion）----
 //
