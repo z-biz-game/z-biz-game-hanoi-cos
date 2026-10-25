@@ -30,7 +30,7 @@ import { createView } from './view.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {};
-for (const id of ['board', 'stage', 'lotId', 'band', 'shape', 'steps', 'left', 'over', 'par', 'space', 'ways', 'proof', 'best', 'unlocked', 'hintline', 'undo', 'hint', 'restart', 'demo', 'hintToggle', 'curtain', 'card', 'cardTitle', 'cardBody', 'cardNext', 'close', 'index', 'indexList', 'toast', 'reset', 'saveState', 'today', 'cap', 'counter', 'routeBox', 'pause', 'elapsed', 'pauseLayer', 'pauseResume']) {
+for (const id of ['board', 'stage', 'lotId', 'band', 'shape', 'steps', 'left', 'over', 'par', 'space', 'ways', 'proof', 'best', 'unlocked', 'hintline', 'undo', 'hint', 'restart', 'demo', 'hintToggle', 'curtain', 'card', 'cardTitle', 'cardBody', 'cardNext', 'close', 'index', 'indexList', 'toast', 'reset', 'saveState', 'today', 'cap', 'counter', 'routeBox', 'pause', 'pauseLabel', 'elapsed', 'pauseLayer', 'pauseResume']) {
   el[id] = $(id);
 }
 
@@ -644,10 +644,15 @@ function fmtElapsed(ms) {
 
 // 暂停态的可见部分：遮罩 + 按钮文案 + 视图的动画钟。三处一起翻，免得只翻一半
 // （按钮写着"继续"而遮罩没了，或者遮罩在而盘面还在动）。
+//
+// 按钮文案走 #pauseLabel 这个 span，不再写 `el.pause.firstChild.textContent`：
+// 后者要求按钮的第一个子节点恰好是那个文本节点 —— 谁给按钮加一层包裹、加一个图标、
+// 或者前端框架重排一次子节点，装载期就当场 TypeError（装载扫描实测抓过这一处）。
+// 文案节点显式署名，按钮里想再包什么都随便加。
 function paintPause() {
   const on = session.paused;
   el.pauseLayer.hidden = !on;
-  el.pause.firstChild.textContent = on ? '继续 ' : '暂停 ';
+  el.pauseLabel.textContent = on ? '继续' : '暂停';
   el.pause.setAttribute('aria-pressed', String(on));
   view.setPaused(on);
 }
