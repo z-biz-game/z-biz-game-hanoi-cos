@@ -107,6 +107,31 @@ canvas#board:active { cursor: grabbing; }
   pointer-events: none;
 }
 
+/* 暂停遮罩：盖在 .stage 上。盘面照旧画着（玩家看得见自己停在哪一步），但手指碰不到它——
+   暂停期间的落子被壳层那道闸（js/core/session.js 的 allowInput）挡住，遮罩是第二道。 */
+.paused-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(9, 10, 13, 0.66);
+}
+
+/* UA 的 [hidden] { display: none } 是可被作者规则盖掉的默认值：上面那条 display:flex
+   就会盖掉它，所以隐藏态必须自己再写一遍（与 .curtain[hidden] 同一处道理）。 */
+.paused-layer[hidden] { display: none; }
+
+.paused-card {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+}
+
+.paused-card b { font-size: 21px; letter-spacing: 3px; }
+.paused-card span { font-size: 13px; color: var(--ink-dim); }
+
 .panel {
   border: 1px solid var(--line);
   border-radius: var(--radius);

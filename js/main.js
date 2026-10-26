@@ -24,12 +24,16 @@ import { todayKey } from './core/rng.js';
 // board mislabels itself.
 import { BANDS } from './core/make.js';
 import { DEMO_STEP_S, createView } from './view.js';
-import { createSfx } from './audio.js';
+// 一次对局 = 一次会话：js/core/session.js 拥有那只表与那道闸（盘面落子、演示推子都要先过它）。
+import { createSession } from './core/session.js';
+// 听觉与触觉这两路反馈：音频单例自己管手势解锁与真静音，这里只管把音接到真实事件上。
+import { audio } from './audio.js';
+import { haptics } from './haptics.js';
 import { setupPwa } from './pwa.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {};
-for (const id of ['board', 'stage', 'lotId', 'band', 'shape', 'steps', 'left', 'over', 'par', 'space', 'ways', 'proof', 'best', 'unlocked', 'hintline', 'undo', 'hint', 'restart', 'demo', 'demoLabel', 'hintToggle', 'pause', 'pauseLabel', 'mute', 'muteLabel', 'full', 'fullLabel', 'help', 'pausedBanner', 'curtain', 'card', 'cardTitle', 'cardBody', 'cardNext', 'close', 'helpCurtain', 'helpClose', 'index', 'indexList', 'toast', 'reset', 'saveState', 'today', 'cap', 'counter', 'routeBox', 'pwaState', 'install']) {
+for (const id of ['board', 'stage', 'lotId', 'band', 'shape', 'steps', 'left', 'over', 'elapsed', 'par', 'space', 'ways', 'proof', 'best', 'unlocked', 'hintline', 'undo', 'hint', 'restart', 'demo', 'demoLabel', 'hintToggle', 'pause', 'pauseLabel', 'mute', 'muteLabel', 'full', 'fullLabel', 'help', 'pausedBanner', 'curtain', 'card', 'cardTitle', 'cardBody', 'cardNext', 'close', 'helpCurtain', 'helpClose', 'index', 'indexList', 'toast', 'reset', 'saveState', 'today', 'cap', 'counter', 'routeBox', 'pwaState', 'install']) {
   el[id] = $(id);
 }
 
@@ -43,11 +47,17 @@ const app = {
   toastTimer: 0,
   wipeArmed: false,
   lastRecord: null,
-  sfx: createSfx(),
   demo: { on: false, acc: 0, unsub: null },
   pwa: null,
   installable: false,
 };
+
+// 一局一次会话：表走 performance.now()（单调钟），暂停时表停住，输入闸由 allowInput() 回答。
+const session = createSession(() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
+function resetSession(start = false) {
+  session.reset();
+  if (start) session.start();
+}
 
 const view = createView(el.board, {
   move: (m) => commit(m.from, m.to),
@@ -86,10 +96,28 @@ function toast(msg) {
   app.toastTimer = setTimeout(() => { el.toast.hidden = true; }, 2200);
 }
 
-// 声音只有这一道门。静音时 js/audio.js 的 play() 在建任何振荡器之前就返回 false —— 「把增益
-// 设为 0」那种假静音在这里过不了 test 之外的眼睛，所以它连节点都不建，计数留给 stats.mutedPlays。
+// 声音只有这一道门。旧的音名在这里映射到远端单例的 VOICES，触觉跟着同一件事一起发：
+//   lift → tap（拿起盘）／drop → correct（有效操作成功）／refuse → wrong（规则拒绝了）
+//   ui → tap（界面点击）／win|fanfare → win（通关只由 onFinish 里的这一声负责）
 function sfx(kind) {
-  return app.sfx.play(kind);
+  switch (kind) {
+    case 'lift':
+    case 'ui':
+      haptics.tap();
+      return audio.play('tap');
+    case 'drop':
+      haptics.correct();
+      return audio.play('correct');
+    case 'refuse':
+      haptics.wrong();
+      return audio.play('wrong');
+    case 'win':
+    case 'fanfare':
+      haptics.correct();
+      return audio.play('win');
+    default:
+      return audio.play(kind);
+  }
 }
 
 // ---- routing --------------------------------------------------------------------------------
@@ -137,6 +165,7 @@ function apply() {
     app.mode = 'index';
     app.level = null;
     app.game = null;
+    resetSession();      // 目录页没有对局：表停、暂停态清干净
     view.setGame(null);
     renderIndex();
     document.body.dataset.mode = 'index';
@@ -150,6 +179,7 @@ function apply() {
   app.level = buildLevel(route);
   app.game = createGame(app.level);
   app.hints = 0;
+  resetSession(true);  // 新的一局：表从头走，暂停态清干净
   app.demoStop && app.demoStop();
   view.setGame(app.game);
   const list = campaign();
@@ -180,8 +210,12 @@ function refusalReason(from, to) {
 function commit(from, to, via = 'pointer') {
   if (!app.game || app.game.done) return false;
   // 暂停冻住的必须是两条门：画布在 down() 里就不接了，键盘与测试钩子走的是这里，否则暂停中
-  // 按 R/拖钩子照样能改账本，那暂停就是个装饰。
-  if (view.paused) { toast('已暂停：按 P 继续后再搬盘'); return false; }
+  // 按 R/拖钩子照样能改账本，那暂停就是个装饰。session 是那条闸的唯一答案。
+  if (!session.allowInput() || view.paused) {
+    toast('已暂停：按 P 继续后再搬盘');
+    audio.play('blocked');
+    return false;
+  }
   const ok = moveTop(app.game, from, to);
   if (!ok) {
     view.shakePeg(from);
@@ -194,9 +228,9 @@ function commit(from, to, via = 'pointer') {
   // t0 记在 view.clock 上，不记在墙上：暂停要把飞行冻住，30Hz 与 120Hz 要在同一步虚拟时长后
   // 画出同一张图，这两件事都只有"动画和累加器同一条时间轴"才成立。
   view.arm(mv.disk, mv.from, mv.to);
-  sfx('drop');
   if (via === 'hint') app.hints++;
-  if (app.game.done) onFinish();
+  if (app.game.done) onFinish();   // 收官那一响是 win，在 onFinish 里；这里不再补 correct
+  else sfx('drop');
   render();
   return true;
 }
@@ -212,6 +246,7 @@ function lastToast() {
 function onFinish() {
   const g = app.game;
   const par = g.par;
+  session.stop();      // 通关了：表停在这一刻
   const certified = g.moves === par;
   const gradeNow = grade(g);
   const isDaily = app.mode === 'daily';
@@ -229,6 +264,7 @@ function onFinish() {
     el.cardBody.appendChild(row);
   };
   add('已用步数', String(g.moves));
+  add('用时', fmtElapsed(session.elapsedMs()));
   add('已证下界', `${par}${g.metrics && g.metrics.exact === false ? '（构建期穷尽）' : ''}`);
   add('超出', certified ? '0 步 · 与下界一致' : `${g.moves - par} 步`);
   add('评级', `${gradeNow.label} ${'★'.repeat(gradeNow.stars)}${'☆'.repeat(3 - gradeNow.stars)}`);
@@ -245,6 +281,12 @@ function onFinish() {
 // ---- rendering ------------------------------------------------------------------------------
 function txt(node, v) { node.textContent = v; }
 
+// 「用时」走玩家的表：分:秒，暂停时不涨。不到一分钟也照这个写法，玩家不必猜单位。
+function fmtElapsed(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
 function render() {
   const g = app.game;
   if (!g) return;
@@ -260,6 +302,7 @@ function render() {
   txt(el.par, String(lv.par));
   txt(el.left, left === null ? '—' : String(left));
   txt(el.over, over > 0 ? `超 ${over} 步` : left === 0 || g.done ? '与下界一致' : '未超');
+  txt(el.elapsed, fmtElapsed(session.elapsedMs()));
   txt(el.space, `${lv.pegs}^${lv.n} = ${stateCount(lv.n, lv.pegs).toLocaleString('en-US')} 态`);
   txt(el.ways, lv.ways === undefined || lv.ways === null ? '—（乱盘行不穷举路线数）' : `${lv.ways} 条最短路线`);
   txt(el.proof, lv.metrics && lv.metrics.proof ? lv.metrics.proof : '—');
@@ -351,6 +394,7 @@ el.restart.addEventListener('click', () => {
   // `refused` 不归这里：它是「这张 LOT」的违规账，由 apply() 在换图时清零（tools/playtest.mjs
   // 的 @pointer 段落就靠它跨重开成立）。
   el.curtain.hidden = true;
+  resetSession(true);  // 重来一局：表归零，暂停态清干净
   sfx('ui');
   view.snap();
   render();
@@ -377,22 +421,25 @@ function applyPaused() {
   return now;
 }
 el.pause.addEventListener('click', () => {
-  view.pause(!view.paused);
+  const next = !view.paused;
+  view.pause(next);
+  if (next) session.pause(); else session.resume();
   applyPaused();
   sfx('ui');
 });
 
 function applyMuted(on) {
-  const now = !!app.sfx.setMuted(on);
+  audio.setMuted(on);
+  const now = audio.muted;
   el.mute.setAttribute('aria-pressed', String(now));
   txt(el.muteLabel, now ? '已静音' : '静音：关');
   setSetting('muted', now);
   return now;
 }
 el.mute.addEventListener('click', () => {
-  const now = applyMuted(!app.sfx.muted);
+  const now = applyMuted(!audio.muted);
   // 取消静音才建上下文；静音状态下 AudioContext 连存在都不必，建了又被 autoplay 策略挂起来。
-  if (!now && app.sfx.unlock()) sfx('ui');
+  if (!now && audio.unlock()) sfx('ui');
 });
 
 function applyFullscreen() {
@@ -549,9 +596,9 @@ if (RM) {
 // 设置项从存档里回来，但不回写：开机就 setSetting 会把"读了什么"变成"改了什么"。
 function applyLoadedSettings() {
   const s = readSettings(loadSave());
-  app.sfx.setMuted(s.muted);
-  el.mute.setAttribute('aria-pressed', String(app.sfx.muted));
-  txt(el.muteLabel, app.sfx.muted ? '已静音' : '静音：关');
+  audio.setMuted(s.muted);
+  el.mute.setAttribute('aria-pressed', String(audio.muted));
+  txt(el.muteLabel, audio.muted ? '已静音' : '静音：关');
   view.showHint(s.hintOn);
   el.hintToggle.setAttribute('aria-pressed', String(view.hintOn));
   txt(el.hintToggle, view.hintOn ? '提示高亮：开' : '提示高亮：关');
@@ -566,6 +613,10 @@ function applyHelpNudge() {
 view.measure();
 const bootSettings = applyLoadedSettings();
 apply();
+// 面板上的表：每半秒读一次 session 的读数。暂停时 session.elapsedMs() 不涨，读数就停住。
+setInterval(() => {
+  if (app.game && el.elapsed) txt(el.elapsed, fmtElapsed(session.elapsedMs()));
+}, 500);
 applyPaused();
 applyFullscreen();
 if (!bootSettings.tutorialSeen) toast('第一次玩？按 ? 或点「玩法说明」：规则、命中带和键位都在里面');
@@ -618,8 +669,8 @@ window.hanoi = {
       moving: view.isMoving(),
       reducedMotion: !!view.reducedMotion,
       motion: document.body.dataset.motion || 'full',
-      muted: !!app.sfx.muted,
-      audio: { ...app.sfx.stats, state: app.sfx.state },
+      muted: !!audio.muted,
+      audio: { muted: audio.muted, unlocked: audio.unlocked, state: audio.unlocked ? 'running' : 'idle' },
       helpOpen: !el.helpCurtain.hidden,
       tutorialSeen: readSettings(loadSave()).tutorialSeen,
       fullscreen: !!document.fullscreenElement,
@@ -679,9 +730,9 @@ window.hanoi = {
     return { paused: !!view.paused, clock: view.clock, frames: view.frames };
   },
   muteOn(on) {
-    if (typeof on === 'boolean') { if (!!app.sfx.muted !== on) el.mute.click(); }
+    if (typeof on === 'boolean') { if (!!audio.muted !== on) el.mute.click(); }
     else el.mute.click();
-    return { muted: !!app.sfx.muted, stats: { ...app.sfx.stats } };
+    return { muted: !!audio.muted, unlocked: audio.unlocked };
   },
   reducedMotionOn(on) {
     applyReducedMotion(typeof on === 'boolean' ? on : !view.reducedMotion);
