@@ -10,13 +10,13 @@
   js/view.js    hue() 34→184（最小盘最亮）、post 渐变 #4a4238→#7a6c58→#3b352d、base beam #2a2f3a/#3b4250
 所以图标、社交卡与游戏内纹理是同一个东西的三种尺度，不是三张互不相干的画。
 
-产出（全部真 PNG，RGBA 或 RGB，无 0 字节、无 SVG 冒充）：
+产出（真 PNG / JPEG，RGBA 或 RGB，无 0 字节、无 SVG 冒充）：
   icons/icon-1024.png         母图（App Store / 派生源）
   icons/icon-512.png 192 180 152 96 64 48 32 16
   icons/icon-maskable-512.png PWA maskable（内容缩到 80% 安全区）
   icons/apple-touch-icon.png  180，不透明底（iOS 不给 alpha 留透明）
   icons/favicon-32.png 16.png 192.png
-  og/hanoi-og-1200x630.png    社交卡（1200×630）
+  og/hanoi-og-1200x630.jpg    社交卡（1200×630）
   art/stone-512.png           可平铺石材纹理，画布 base beam / 舞台背景用
   art/glow-256.png            径向发光 sprite，提示高亮与认证解闪动用
   art/grain-128.png           细颗粒叠加（只叠一次，不参与动画，保证帧指纹稳定）
@@ -209,7 +209,11 @@ def emblem(S, scale=1.0, opaque=True):
 
 def save(im, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    im.save(path, 'PNG', optimize=True)
+    if path.endswith('.jpg'):
+        im.convert('RGB').save(path, 'JPEG', quality=85, optimize=True,
+                               progressive=True, subsampling=0)
+    else:
+        im.save(path, 'PNG', optimize=True)
     print(f'  {os.path.relpath(path)}  {im.width}x{im.height}  {os.path.getsize(path)}B')
 
 
@@ -370,7 +374,7 @@ def main():
     save(master.resize((192, 192), Image.LANCZOS), os.path.join(root, 'icons', 'favicon-192.png'))
     save(master.resize((32, 32), Image.LANCZOS), os.path.join(root, 'icons', 'favicon-32.png'))
     save(master.resize((16, 16), Image.LANCZOS), os.path.join(root, 'icons', 'favicon-16.png'))
-    save(social(), os.path.join(root, 'og', 'hanoi-og-1200x630.png'))
+    save(social(), os.path.join(root, 'og', 'hanoi-og-1200x630.jpg'))
     save(stone(512), os.path.join(root, 'art', 'stone-512.png'))
     save(glow(256), os.path.join(root, 'art', 'glow-256.png'))
     save(grain(128), os.path.join(root, 'art', 'grain-128.png'))
